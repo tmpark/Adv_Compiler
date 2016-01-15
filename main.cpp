@@ -14,6 +14,7 @@ int main() {
         return 0;
     while(scanner->GetSym() != eofToken);
     scanner->closeFile();
+    cout << "sibal";
 
 #else
         cout << "No parse implemented" << endl;
