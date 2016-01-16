@@ -69,6 +69,10 @@ TokenType Scanner :: GetSym()
                     state = STAT_L;
                 else if (inputSym == '>')
                     state = STAT_R;
+                else if (inputSym == '#')
+                    state = STAT_COMMENT;
+                else if(inputSym == '/')
+                    state = STAT_SLASH;
                 else {
                     tokenTypeReturned = getTypeOfOneToken(inputSym);
                     state = STAT_DONE;
@@ -102,9 +106,9 @@ TokenType Scanner :: GetSym()
                 else {
                     Previous();
                     tokenTypeReturned = errorToken;
+                    Error("STAT_EQ","=");
                 }
                 break;
-
 
             case STAT_NE:
                 state =  STAT_DONE;
@@ -115,6 +119,7 @@ TokenType Scanner :: GetSym()
                 {
                     Previous();
                     tokenTypeReturned = errorToken;
+                    Error("STAT_NE","=");
                 }
                 break;
 
@@ -140,39 +145,61 @@ TokenType Scanner :: GetSym()
                     tokenTypeReturned = gtrToken;
                 }
                 break;
+            case STAT_COMMENT:
+                if (inputSym == '\n')
+                {
+                    state = STAT_START;
+                    tokenTypeReturned = commentToken;
+                }
+
+                break;
+
+            case STAT_SLASH:
+                if (inputSym == '/')
+                    state = STAT_COMMENT;
+                else {
+                    Previous();
+                    state = STAT_DONE;
+                    tokenTypeReturned = divToken;
+                }
+                break;
+
             case STAT_DONE:
                 break;
+
             default:
                 std::cerr << "Scanner Bug: state= " << state << endl;
                 state = STAT_DONE;
                 tokenTypeReturned = errorToken;
                 break;
         }
-        if(state == STAT_DONE)
-        {
-            if(tokenTypeReturned == identToken) {
-                auto it = reservedWord.find(stringConstructed);
-                if(it != reservedWord.end())
-                {
-                    tokenTypeReturned = it->second;
-                }
-                else
-                    id = tokenTypeReturned;
-            }
-            else if(tokenTypeReturned == numberToken){
-                number = std::stoi(stringConstructed);
-            }
-
-        }
 
     }
+
+    if(tokenTypeReturned == identToken) {
+        auto it = reservedWord.find(stringConstructed);
+        if(it != reservedWord.end())
+        {
+            tokenTypeReturned = it->second;
+        }
+        else
+            id = tokenTypeReturned;
+    }
+    else if(tokenTypeReturned == numberToken){
+        number = std::stoi(stringConstructed);
+    }
+
     if(TraceScan)
     {
-        cout << "\t" << fileReader->getCurrentLine() << " ";
+        cout << "\t" << fileReader->getCurrentLine() << " "<<flush;
         printToken(tokenTypeReturned, stringConstructed);
     }
     return tokenTypeReturned;
 }
 
+void Scanner :: Error(std::string state, std::string missingChar)
+{
+    cerr << "Scanner error: in " << state << ", " << missingChar << " is missing" << endl;
+}
 
 

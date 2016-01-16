@@ -1,23 +1,29 @@
 #include <iostream>
-#include "Scanner.h"
+#include "Parser.h"
 
 using namespace std;
 
 int main() {
     string folder = "/Users/taeminpark/ClionProjects/Adv_Compiler/test/";
-    string fileName = "test031.txt";
+    string fileName = "big.txt";
+    RC rc = -1;
 
 #if NO_PARSE
     Scanner *scanner = Scanner :: instance();
-    RC rc = scanner->openFile(folder + fileName);
+    rc = scanner->openFile(folder + fileName);
     if(rc == -1)
         return 0;
     while(scanner->GetSym() != eofToken);
     scanner->closeFile();
-    cout << "sibal";
 
 #else
-        cout << "No parse implemented" << endl;
+    Parser *parser = Parser :: instance();
+    rc = parser->openFile(folder + fileName);
+    if(rc == -1)
+        return 0;
+    parser->startParse();
+    parser->closeFile();
+
 #endif
 
     return 0;

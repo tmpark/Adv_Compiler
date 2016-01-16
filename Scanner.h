@@ -10,7 +10,7 @@
 
 
 typedef enum {
-    STAT_START, STAT_NUM, STAT_ID, STAT_EQ, STAT_NE, STAT_L, STAT_R, STAT_DONE
+    STAT_START, STAT_NUM, STAT_ID, STAT_EQ, STAT_NE, STAT_L, STAT_R, STAT_DONE, STAT_COMMENT, STAT_SLASH
 }StateType;
 
 
@@ -21,12 +21,12 @@ class Scanner {
 
 public:
 
-    Scanner(){};
+    Scanner(){number = 0; id = errorToken;};
     static Scanner* instance();
     TokenType GetSym();
     int number;
     TokenType id;
-    void Error(std::string errorMsg){}
+    void Error(std::string state, std::string missingChar);
     RC openFile(const std::string &fileName);
     RC closeFile();
 

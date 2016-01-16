@@ -26,7 +26,7 @@ RC FileReader::openFile(const std::string &fileName) {
     fileStream.open(fileName.c_str(), std::fstream::in);
     if(!fileStream.is_open())
     {
-        std::cerr << "File not exists";
+        Error("File not exists.");
         return -1;
     }
     return 1;
@@ -39,7 +39,7 @@ RC FileReader::closeFile() {
 }
 
 void FileReader::Error(std::string errorMsg) {
-    cout << errorMsg << endl;
+    cerr << "FileReader : "<< errorMsg << endl;
 }
 
 char FileReader::GetSym() {
@@ -51,13 +51,14 @@ char FileReader::GetSym() {
 
         fileStream.getline(lineBuffer, LINEBUFSIZE);
         currentLineSize = std::strlen(lineBuffer);
+        lineBuffer[currentLineSize] = '\n';
+        lineBuffer[currentLineSize+1] = '\0';
+        currentLineSize++;
         currentLine++;
         currentLinePosition = 0;
 
-        if(currentLineSize == 0)
-        {
-            return '\n';
-        }
+        return '\n';
+
         //for debug
         if(SOURCE_CODE_PRINT)
             std::cout << lineBuffer << std::endl;
