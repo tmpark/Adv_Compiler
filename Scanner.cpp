@@ -43,7 +43,7 @@ TokenType Scanner :: GetSym()
 {
     FileReader *fileReader = FileReader::instance();
     StateType state = STAT_START;
-    TokenType tokenTypeReturned = errorToken;
+    TokenType tokenTypeReturned = errToken;
     string stringConstructed;
 
     while(state != STAT_DONE)
@@ -105,7 +105,7 @@ TokenType Scanner :: GetSym()
                     tokenTypeReturned = eqlToken;
                 else {
                     Previous();
-                    tokenTypeReturned = errorToken;
+                    tokenTypeReturned = errToken;
                     Error("STAT_EQ","=");
                 }
                 break;
@@ -118,7 +118,7 @@ TokenType Scanner :: GetSym()
                 else
                 {
                     Previous();
-                    tokenTypeReturned = errorToken;
+                    tokenTypeReturned = errToken;
                     Error("STAT_NE","=");
                 }
                 break;
@@ -170,7 +170,7 @@ TokenType Scanner :: GetSym()
             default:
                 std::cerr << "Scanner Bug: state= " << state << endl;
                 state = STAT_DONE;
-                tokenTypeReturned = errorToken;
+                tokenTypeReturned = errToken;
                 break;
         }
 
@@ -183,7 +183,7 @@ TokenType Scanner :: GetSym()
             tokenTypeReturned = it->second;
         }
         else
-            id = tokenTypeReturned;
+            id = stringConstructed;
     }
     else if(tokenTypeReturned == numberToken){
         number = std::stoi(stringConstructed);

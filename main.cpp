@@ -5,7 +5,7 @@ using namespace std;
 
 int main() {
     string folder = "/Users/taeminpark/ClionProjects/Adv_Compiler/test/";
-    string fileName = "big.txt";
+    string fileName = "cell.txt";
     RC rc = -1;
 
 #if NO_PARSE
@@ -22,6 +22,8 @@ int main() {
     if(rc == -1)
         return 0;
     parser->startParse();
+    parser->printIRCodes(); //Debug
+    //parser->printSymbolTable(); //Debug
     parser->closeFile();
 
 #endif

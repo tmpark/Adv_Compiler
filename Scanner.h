@@ -15,17 +15,15 @@ typedef enum {
 
 
 
-
-
 class Scanner {
 
 public:
 
-    Scanner(){number = 0; id = errorToken;};
+    Scanner(){number = 0; id = errToken;};
     static Scanner* instance();
     TokenType GetSym();
     int number;
-    TokenType id;
+    std::string id;
     void Error(std::string state, std::string missingChar);
     RC openFile(const std::string &fileName);
     RC closeFile();

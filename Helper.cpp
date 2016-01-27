@@ -43,7 +43,7 @@ TokenType getTypeOfOneToken(char c)
         case EOF:
             return eofToken;
         default:
-            return errorToken;
+            return errToken;
     }
 }
 
@@ -161,7 +161,7 @@ void printToken(TokenType tokenTypeReturned,std::string idConstructed)
         case mainToken:
             std::cout << "reserved word: "<< idConstructed << std::endl<< std::flush;
             break;
-        case errorToken:
+        case errToken:
             std::cout << "ERROR: " << idConstructed << std::endl<< std::flush;
             break;
         case numberToken:
@@ -255,3 +255,126 @@ bool isFuncBody(TokenType scannerSym)
     return isVarDecl(scannerSym) || scannerSym == beginToken;
 }
 
+
+Opcode lmmOp(Opcode op)
+{
+    return (Opcode)(op + 16);
+}
+
+std::string getIROperatorString(IROP irOp)
+{
+    switch(irOp){
+        case IR_neg:
+            return "neg";
+        case IR_add:
+            return "add";
+        case IR_sub:
+            return "sub";
+        case IR_mul:
+            return "mul";
+        case IR_div:
+            return "div";
+        case IR_cmp:
+            return "cmp";
+        case IR_adda:
+            return "adda";
+        case IR_load:
+            return "load";
+        case IR_store:
+            return "store";
+        case IR_move:
+            return "move";
+        case IR_phi:
+            return "phi";
+        case IR_end:
+            return "end";
+        case IR_bra:
+            return "bra";
+        case IR_bne:
+            return "bne";
+        case IR_beq:
+            return "beq";
+        case IR_ble:
+            return "ble";
+        case IR_blt:
+            return "blt";
+        case IR_bge:
+            return "bge";
+        case IR_bgt:
+            return "bgt";
+        case IR_read:
+            return "read";
+        case IR_write:
+            return "write";
+        case IR_writeNL:
+            return "writeNL";
+        default:
+            return "err_IR";
+    }
+
+}
+
+IROP getIRopFromToken(TokenType scannerSym)
+{
+    switch(scannerSym)
+    {
+        case timesToken:
+            return IR_mul;
+        case divToken:
+            return IR_div;
+        case plusToken:
+            return IR_add;
+        case minusToken:
+            return IR_sub;
+        case eqlToken:
+            return IR_beq;
+        case neqToken:
+            return IR_bne;
+        case lssToken:
+            return IR_blt;
+        case geqToken:
+            return IR_bge;
+        case leqToken:
+            return IR_ble;
+        case gtrToken:
+            return IR_bgt;
+        default:
+            std::cerr << "Unknown token for IR: " << scannerSym << std::endl<< std::flush;
+            return IR_err;
+    }
+
+}
+
+IROP negateCondition(IROP ir_op)
+{
+    switch(ir_op)
+    {
+        case IR_beq:
+            return IR_bne;
+        case IR_bne:
+            return IR_beq;
+        case IR_blt:
+            return IR_bge;
+        case IR_bge:
+            return IR_blt;
+        case IR_ble:
+            return IR_bgt;
+        case IR_bgt:
+            return IR_ble;
+        default:
+            std::cerr << "No comparison IR: " << ir_op<< std::endl<< std::flush;
+            return IR_err;
+    }
+}
+
+
+std::vector<std::string> splitString(std::string stringToSplit)
+{
+    std::istringstream ss(stringToSplit);
+    std::string token;
+    vector<string> playerInfoVector;
+    while(std::getline(ss, token, ';')) {
+        playerInfoVector.push_back(token);
+    }
+    return playerInfoVector;
+}
