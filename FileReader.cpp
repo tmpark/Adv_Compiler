@@ -3,7 +3,7 @@
 //
 
 #include "FileReader.h"
-#include "Helper.h"
+#include <cstring>
 
 using namespace std;
 

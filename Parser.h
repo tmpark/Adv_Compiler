@@ -6,11 +6,15 @@
 #define ADV_COMPILER_PARSER_H
 //#define CODEBUFSIZE 128 //128 * uint32 = 4096
 //#define NUMOFREGS 32
+#define RETURN_IN_STACK -1
+#define PRE_FP_IN_STACK 0
+#define ARG_IN_STACK 1
 
 #include <array>
 #include <vector>
 #include <stack>
 #include <map>
+#include <memory>
 #include "Scanner.h"
 
 using namespace :: std;
@@ -62,25 +66,51 @@ private:
     int fixLoc;
 };
 
-class SymInfo
+
+
+class Symbol
 {
 
 public:
-    SymInfo(){symType = errType; arrayCapacity = {}; varAssignedAddr = {};}
-    SymInfo(SymType symType, int baseAddr){this->symType = symType; this->baseAddr = baseAddr;};
-    SymInfo(SymType symType, int baseAddr, vector<int> arrayCapacity){this->symType = symType; this->baseAddr = baseAddr; this->arrayCapacity = arrayCapacity;};
+    Symbol(){ symType = errType; arrayCapacity = {}; symAssignedInst = {};
+        numOfParam = 0;}
+    Symbol(SymType symType, int loc)
+    { this->symType = symType;this->symLoc = loc;
+        numOfParam = 0;};
+    Symbol(SymType symType, int loc, vector<int> arrayCapacity)
+    { this->symType = symType; this->symLoc = loc; this->arrayCapacity = arrayCapacity;
+        numOfParam = 0;};
+    Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
+    { this->symType = symType; this->symLoc = loc; this->numOfParam = numOfParam;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
-    void setBaseAddr(int arg){baseAddr = arg;};
-    int getBaseAddr(){return baseAddr;};
+    void setLocation(int arg){ symLoc = arg;};
+    int getLocation(){return symLoc;};
+    void setNumbOfParam(int arg){this->numOfParam = numOfParam;};
+    int getNumbOfParam(){ numOfParam++;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
-    std::vector<int> varAssignedAddr; //only for variable assigned information
+    std::vector<int> symAssignedInst; //only for variable assigned information
 
 private:
     SymType symType; //var, array, function, procedure
-    int baseAddr; //Location of symbol
+    int symLoc; //Location of symbol
+    int numOfParam; //Only for function
 
+};
+
+
+class SymTable
+{
+public:
+    SymTable(){parentSymTableName = "";};
+    SymTable(string parentSymTableName)
+    { this->parentSymTableName = parentSymTableName;};
+    void setParent(string arg){this->parentSymTableName = arg;};
+    string getParent(){return parentSymTableName;};
+    unordered_map<string,Symbol> symbolList;
+private:
+    string parentSymTableName;
 };
 
 class IRFormat
@@ -123,10 +153,10 @@ private:
     //Non terminals
     void computation();
     void funcBody();
-    void formalParam();
+    int formalParam();
     void funcDecl();
     void varDecl();
-    SymInfo typeDecl();
+    Symbol typeDecl();
     void statSequence();
     void statement();
     void returnStatement();
@@ -152,13 +182,14 @@ private:
 
     int IRpc;
     std::vector<IRFormat> IRcodes;
-    std::stack<std::string> currentFunction;
-    std::unordered_map<std::string,SymInfo> symTable;
-    void addFuncSymbol(std::string symbol, SymType symType);
-    void addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity);
+    std::stack<std::string> scopeStack;
+    //std::unordered_map<std::string,Symbol> symTable;
+    std::unordered_map<std::string,SymTable> symTableList;
+    void addFuncSymbol(SymType symType, std::string symbolName, int numOfParam);
+    void addVarSymbol(std::string symbol, SymType symType, int loc, std::vector<int> arrayCapacity);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
-    SymInfo symTableLookup(std::string symbol);
+    Symbol symTableLookup(std::string symbol);
 
 
 /*

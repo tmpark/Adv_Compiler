@@ -46,6 +46,7 @@ void Parser ::Next() {
 void Parser :: startParse()
 {
     Next();
+
     computation();
 }
 void Parser :: Error(std::string nonTerminal, std::initializer_list<std::string> missingTokens){
@@ -79,9 +80,13 @@ void Parser :: Error(std::string nonTerminal, std::string missingTerm, int numOf
 
 //Push down automaton
 void Parser::computation() {
+
+    SymTable newSymTable;
+    symTableList.insert({"main",newSymTable});
+
     if(scannerSym == mainToken)
     {
-        currentFunction.push("main"); //main function scope start
+        scopeStack.push("main"); //main function scope start
 
         Next(); //Consume main
         while(isVarDecl(scannerSym))
@@ -98,7 +103,7 @@ void Parser::computation() {
                 {
                     Next(); //Consume end Token
                     if(scannerSym == periodToken) {
-                        currentFunction.pop(); //end of main function
+                        scopeStack.pop(); //end of main function
                         Next(); //Comsume period Token
                     }
                     else
@@ -144,21 +149,22 @@ void Parser:: funcBody(){
 }
 
 
-void Parser::formalParam(){
-    Scanner *scanner = Scanner::instance();
+int Parser::formalParam(){
+    int numOfParam = 0;
     if(scannerSym == openparenToken)
     {
         Next();
         if(scannerSym == identToken)
         {
-            addVarSymbol(scanner->id,varType,{}); //if declared add identifier to symbol table
+            numOfParam++;
+
             Next();
             while(scannerSym == commaToken)
             {
                 Next();
                 if(scannerSym == identToken)
                 {
-                    addVarSymbol(scanner->id,varType,{}); //if declared add identifier to symbol table
+                    numOfParam++;;
                     Next();
                 }
                 else
@@ -175,6 +181,7 @@ void Parser::formalParam(){
     }
     else
         Error("formalParam",{getTokenStr(openparenToken)});
+    return numOfParam;
 }
 
 void Parser::funcDecl(){
@@ -187,21 +194,23 @@ void Parser::funcDecl(){
         Next();
         if(scannerSym == identToken)
         {
-            addFuncSymbol(scanner->id,symType); //if declared add identifier to symbol table
-
-            currentFunction.push(scanner->id); //Current Scope set
+            string symName = scanner->id;
             Next();
+            int numOfParam = 0;
             if(isFormalParam(scannerSym))
-                formalParam();
+                numOfParam = formalParam();
             if(scannerSym == semiToken)
             {
                 Next();
+                addFuncSymbol(symType,symName,numOfParam); //if declared add identifier to symbol table
                 if(isFuncBody(scannerSym))
                 {
+                    scopeStack.push(symName); //Current Scope set
                     funcBody();
+                    scopeStack.pop(); //Go out of function
+
                     if(scannerSym == semiToken)
                     {
-                        currentFunction.pop(); //Go out of function
                         Next();
                     }
                     else
@@ -225,20 +234,24 @@ void Parser::funcDecl(){
 
 void Parser::varDecl() {
 
+
     Scanner *scanner = Scanner::instance();
+    int numOfVar = 0;
     if(isTypeDecl(scannerSym))
     {
-        SymInfo x = typeDecl();
+        Symbol x = typeDecl();
         if(scannerSym == identToken)
         {
-            addVarSymbol(scanner->id,x.getSymType(),x.arrayCapacity);
+            addVarSymbol(scanner->id,x.getSymType(),numOfVar,x.arrayCapacity);
+            numOfVar++;
             Next();
             while(scannerSym == commaToken)
             {
                 Next(); // Consume comma
                 if(scannerSym == identToken) //Array do not allow multiple declaration. So it's just variable
                 {
-                    addVarSymbol(scanner->id,varType,{});
+                    addVarSymbol(scanner->id,x.getSymType(),numOfVar,x.arrayCapacity);
+                    numOfVar++;
                     Next();
                 }
                 else
@@ -259,10 +272,10 @@ void Parser::varDecl() {
         Error("varDecl",{"typeDecl"});
 }
 
-SymInfo Parser::typeDecl() {
+Symbol Parser::typeDecl() {
 
     Scanner *scanner = Scanner::instance();
-    SymInfo result;
+    Symbol result;
     if(scannerSym == varToken)
     {
         result.setSymType(varType); //Var type
@@ -690,7 +703,7 @@ Result Parser::designator() {
 
     if(scannerSym == identToken)
     {
-        SymInfo symInfo = symTableLookup(scanner->id);
+        Symbol symInfo = symTableLookup(scanner->id);
         x.setKind(varKind);
         x.setVariable(scanner->id, var_value);
 
@@ -829,73 +842,106 @@ void Parser::printIRCodes()
 
 void Parser::printSymbolTable()
 {
-    std::cout << "Symbol Name\t" << "Type\t"  << "Addresses" << std::endl;
-    for(auto func : symTable)
+    for(auto symTableIter : symTableList)
     {
-        //std::string symName = func.first;
-        std::cout << func.first << "\t" << (func.second).getSymType() << "\t" << (func.second).getBaseAddr();
-
-        /*
-        for(auto sym : (func.second).varAssignedAddr)
+        cout << symTableIter.first << ":" << endl;
+        SymTable symtable = symTableIter.second;
+        for(auto symIter : symtable.symbolList)
         {
-            std::cout << sym << " ";
+            cout << "\t" << symIter.first << endl;
         }
-         */
-        std::cout << std::endl;
+
     }
+    //std::cout << "Symbol Name\t" << "Type\t"  << "Location" << std::endl;
 
 }
 
 
-void Parser :: addFuncSymbol(std::string symbol, SymType symType)
+void Parser :: addFuncSymbol(SymType symType, std::string symbolName, int numOfParam)
 {
-    std::string encompassingFunc = currentFunction.top();
-    std::string symName = encompassingFunc + ";" + symbol;
-    auto symEntry = symTable.find(symName);
-    if(symEntry == symTable.end())
+    std::string currentScope = scopeStack.top();
+
+    auto parentSymTableIter = symTableList.find(currentScope);
+    if(parentSymTableIter == symTableList.end())
     {
-        SymInfo symInfo(symType,IRpc);
-        symTable.insert({symName,symInfo});
+        std::cerr << "Current scope is invalid" << std::endl;
+        return;
     }
-    else
+    SymTable parentSymTable = parentSymTableIter->second;
+    auto symListIter = parentSymTable.symbolList.find(symbolName);
+    if(symListIter != parentSymTable.symbolList.end())
     {
-        std::cerr << "Same symbol already declared" << std::endl;
+        std::cerr << "Same symbol already exist in symbol table" << std::endl;
+        return;
     }
+
+    auto symTblIter = symTableList.find(symbolName);
+    if(symTblIter != symTableList.end())
+    {
+        std::cerr << "Same symbol already exist in symbol table list" << std::endl;
+        return;
+    }
+
+
+    //Make symbol
+    Symbol functionSymbol(symType,IRpc,numOfParam);
+    //insert this symbol to symbol table.
+    parentSymTable.symbolList.insert({symbolName,functionSymbol});
+    symTableList.at(currentScope) = parentSymTable;
+
+    //Make its own symbol table
+    SymTable newSymTable(currentScope);
+    //Insert new symbol table to symbol table list
+    symTableList.insert({symbolName,newSymTable});
+
 }
 
-void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity)
+void Parser::addVarSymbol(std::string symbol, SymType symType, int loc, std::vector<int> arrayCapacity)
 {
-    std::string encompassingFunc = currentFunction.top();
-    std::string symName = encompassingFunc + ";" + symbol;
-    auto symEntry = symTable.find(symName);
-    if(symEntry == symTable.end())
+    std::string currentScope = scopeStack.top();
+    auto symTableIter = symTableList.find(currentScope);
+    if(symTableIter == symTableList.end())
     {
-        //Fixme: Symbol Table insertion is fake
-        int symAddr = addSymInTable();
-        SymInfo symInfo(symType,symAddr,arrayCapacity);
-        symTable.insert({symName,symInfo});
+        std::cerr << "Current scope is not valid" << std::endl;
+        return;
     }
-    else
-    {
-        std::cerr << "Same symbol already declared" << std::endl;
-    }
+    SymTable currentSymTable = symTableIter->second;
+
+    //Make symbol
+    Symbol newSymbol(symType,loc,arrayCapacity);
+
+    //Update symtable
+    currentSymTable.symbolList.insert({symbol,newSymbol});
+    //update symtable list
+    symTableList.at(currentScope) = currentSymTable;
+
 }
 
-SymInfo Parser:: symTableLookup(std::string symbol)//Fixme: fake implementation
+Symbol Parser:: symTableLookup(std::string symbol)
 {
-    std::stack<std::string> tempFunction = currentFunction;
+    Symbol nullInfo;
+    string currentScope = scopeStack.top();
 
-    while(!tempFunction.empty()) {
-        std::string symbolName = tempFunction.top() + ";" + symbol;
-        auto symInfo = symTable.find(symbolName);
-        if (symInfo != symTable.end())
-            return symInfo->second;
-        tempFunction.pop();
+    while(currentScope != "")
+    {
+        auto currentSymTableIter = symTableList.find(currentScope);
+        if(currentSymTableIter == symTableList.end())
+        {
+            std::cerr << "Current scope is not valid" << std::endl;
+            return nullInfo;
+        }
+
+        SymTable currentSymTable = currentSymTableIter->second;
+        auto symIter = currentSymTable.symbolList.find(symbol);
+        if(symIter != currentSymTable.symbolList.end())
+            return symIter->second;
+
+        currentScope = currentSymTable.getParent();
     }
+
 
     std::cerr << "There is no symbol like " << symbol << std::endl;
-    SymInfo nullInfo;
-    nullInfo.setSymType(errType);
+
     return nullInfo; //There is no symbol
 }
 
