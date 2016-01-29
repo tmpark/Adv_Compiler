@@ -83,6 +83,8 @@ void Parser::computation() {
 
     SymTable newSymTable;
     symTableList.insert({"main",newSymTable});
+    Result tempJumpLoc;tempJumpLoc.setConst(0);
+    emitIntermediate(IR_bra,{tempJumpLoc});
 
     if(scannerSym == mainToken)
     {
@@ -91,10 +93,12 @@ void Parser::computation() {
         Next(); //Consume main
         while(isVarDecl(scannerSym))
             varDecl();
+        predefinedFunc();
         while(isFuncDecl(scannerSym))
             funcDecl();
         if(scannerSym == beginToken)
         {
+            Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
             if(isStatSequence(scannerSym))
             {
@@ -149,22 +153,23 @@ void Parser:: funcBody(){
 }
 
 
-int Parser::formalParam(){
-    int numOfParam = 0;
+vector<string> Parser::formalParam(){
+
+    Scanner *scanner = Scanner::instance();
+    vector<string> parameters;
     if(scannerSym == openparenToken)
     {
         Next();
         if(scannerSym == identToken)
         {
-            numOfParam++;
-
+            parameters.push_back(scanner->id);
             Next();
             while(scannerSym == commaToken)
             {
                 Next();
                 if(scannerSym == identToken)
                 {
-                    numOfParam++;;
+                    parameters.push_back(scanner->id);
                     Next();
                 }
                 else
@@ -181,11 +186,12 @@ int Parser::formalParam(){
     }
     else
         Error("formalParam",{getTokenStr(openparenToken)});
-    return numOfParam;
+    return parameters;
 }
 
 void Parser::funcDecl(){
     Scanner *scanner = Scanner::instance();
+
     if(scannerSym == funcToken || scannerSym == procToken)
     {
         SymType symType;
@@ -196,17 +202,34 @@ void Parser::funcDecl(){
         {
             string symName = scanner->id;
             Next();
-            int numOfParam = 0;
+            vector<string> parameters;
             if(isFormalParam(scannerSym))
-                numOfParam = formalParam();
+                parameters = formalParam();
             if(scannerSym == semiToken)
             {
                 Next();
-                addFuncSymbol(symType,symName,numOfParam); //if declared add identifier to symbol table
+                addFuncSymbol(symType,symName,parameters.size()); //if declared add identifier to symbol table
                 if(isFuncBody(scannerSym))
                 {
                     scopeStack.push(symName); //Current Scope set
+                    //Parameters become local variable
+                    int index = 0;
+                    for(auto param : parameters)
+                    {
+                        addVarSymbol(param,paramType,index,{});//add symbol table
+                        Result paramVal;paramVal.setVariable(param,var_value);
+                        LoadParam(parameters.size(),index,paramVal);//Load parameter value in stack to the variable
+                        index++;
+                    }
+
+
                     funcBody();
+
+                    //Return code emission
+                    Result offset = getAddressInStack(RETURN_IN_STACK);
+                    Result x = emitIntermediate(IR_load,{offset});
+                    emitIntermediate(IR_bra,{x});
+
                     scopeStack.pop(); //Go out of function
 
                     if(scannerSym == semiToken)
@@ -374,12 +397,15 @@ void  Parser::statement()
 }
 
 void Parser::returnStatement() {
+    Result x;
     if(scannerSym == returnToken)
     {
         Next();
         if(isExpression(scannerSym))
         {
-            expression();
+            x = expression();
+            Result ret;ret.setVariable("RET",var_value);
+            emitIntermediate(IR_move,{x,ret});
         }
 
     }
@@ -481,10 +507,13 @@ void Parser::ifStatement() {
         Error("ifStatement",{getTokenStr(ifToken)});
 }
 
-void Parser::funcCall() {
+Result Parser::funcCall() {
     Scanner *scanner = Scanner::instance();
     std::string functionName;
-    std::vector<Result> arguments;
+    Result x, result;
+    int numOfParam = 0;
+    int locationOfFunc = 0;
+    //std::vector<Result> arguments;
 
     if(scannerSym == callToken)
     {
@@ -492,56 +521,54 @@ void Parser::funcCall() {
         if(scannerSym == identToken)
         {
             functionName = scanner->id;
+            Symbol functionSym = symTableLookup(functionName);
+            numOfParam = functionSym.getNumOfParam(); //number of function parameter
+            locationOfFunc = functionSym.getLocation();  //function location(instruction number)
             Next();
             if(scannerSym == openparenToken)
             {
                 Next();
                 if(isExpression((scannerSym)))
                 {
-                    Result x;
+                    int i = 0;
                     x = expression();
-                    arguments.push_back(x);
+                    Result SP;SP.setVariable("SP",var_value);
+                    emitIntermediate(IR_store,{x,SP}); //We assume that SP is automatically adjusted (So SP is adjusted and then store them)
+                    i++;
                     while(scannerSym == commaToken)
                     {
                         Next();
                         if(isExpression(scannerSym))
                         {
                             x = expression();
-                            arguments.push_back(x);
+                            emitIntermediate(IR_store,{x,SP});
+                            i++;
                         }
                         else
                             Error("funcCall",{"expression"});
                     }
+                    if(i != numOfParam)
+                        cerr << "Number of parameter not matched" << endl;
                 }
 
                 if(scannerSym == closeparenToken)
                 {
-                    //Predefined function
-                    if(functionName == std::string("OutputNum"))
-                    {
-                        emitIntermediate(IR_write,{arguments.at(0)});
-                    }
-                    else if(functionName == std::string("OutputNewLine"))
-                    {
-
-                    }
-                    else if(functionName == std::string("InputNum"))
-                    {
-
-                    }
 
                     Next();
                 }
                 else
                     Error("funcCall",{getTokenStr(closeparenToken)});
             }
-
+            Result jumpLocation;jumpLocation.setConst(locationOfFunc);
+            result = emitIntermediate(IR_bra,{jumpLocation});
         }
         else
             Error("funcCall",{getTokenStr(identToken)});
     }
     else
         Error("funcCall",{getTokenStr(callToken)});
+
+    return result;
 }
 
 Result Parser::assignment() {
@@ -655,7 +682,6 @@ Result Parser::term()
     return result;
 }
 
-//Fixme:: function call code emission should be implemented
 Result Parser::factor()
 {
     Scanner *scanner = Scanner::instance();
@@ -665,7 +691,6 @@ Result Parser::factor()
         result = designator();
     }
     else if (scannerSym == numberToken) {
-        x.setKind(constKind);
         x.setConst(scanner->number);
         result = x;
         Next();
@@ -688,7 +713,7 @@ Result Parser::factor()
     }
     else if(isFuncCall(scannerSym))
     {
-        funcCall();
+        result = funcCall();
     }
     else
         Error("factor",{"designator","funcCall",getTokenStr(numberToken), getTokenStr(openparenToken)});
@@ -704,7 +729,6 @@ Result Parser::designator() {
     if(scannerSym == identToken)
     {
         Symbol symInfo = symTableLookup(scanner->id);
-        x.setKind(varKind);
         x.setVariable(scanner->id, var_value);
 
         Next();
@@ -718,7 +742,6 @@ Result Parser::designator() {
             {
                 if(i > 0) {
                     Result capacityOfArray;
-                    capacityOfArray.setKind(constKind);
                     capacityOfArray.setConst(symInfo.arrayCapacity.at((unsigned long)i)); //current capacity
                     updatedIndex = emitIntermediate(IR_mul,{updatedIndex,capacityOfArray});
                 }
@@ -745,11 +768,10 @@ Result Parser::designator() {
         {
             x.setVariableType(var_ref);//x is array. So we have to provide address of x and index
 
-            Result indexAdjust;indexAdjust.setKind(constKind);indexAdjust.setConst(4);
+            Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
 
-            y.setKind(varKind); //Frame pointer
-            y.setVariable("FP",var_value);
+            y.setVariable("FP",var_value);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             y = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
             result = emitIntermediate(IR_load,{y});//load value of the index
@@ -781,7 +803,6 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
 {
 
     Result result;
-    result.setKind(instKind);
     result.setInst(IRpc);
 
     IRFormat ir_line;
@@ -857,7 +878,7 @@ void Parser::printSymbolTable()
 }
 
 
-void Parser :: addFuncSymbol(SymType symType, std::string symbolName, int numOfParam)
+void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam)
 {
     std::string currentScope = scopeStack.top();
 
@@ -884,7 +905,7 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, int numOfP
 
 
     //Make symbol
-    Symbol functionSymbol(symType,IRpc,numOfParam);
+    Symbol functionSymbol(symType,IRpc,(int)numOfParam);
     //insert this symbol to symbol table.
     parentSymTable.symbolList.insert({symbolName,functionSymbol});
     symTableList.at(currentScope) = parentSymTable;
@@ -949,7 +970,6 @@ Symbol Parser:: symTableLookup(std::string symbol)
 void Parser :: CondJF(Result &x)
 {
     Result y; //temporary blank y: later fixed up
-    y.setKind(constKind);
     y.setConst(0);
     emitIntermediate(negateCondition(x.getRelOp()),{x,y});
     x.setFixLoc(IRpc -1);
@@ -957,42 +977,95 @@ void Parser :: CondJF(Result &x)
 
 void Parser :: UnCJF(Result &x)
 {
-    Result temp1;
-    temp1.setKind(constKind);
-    temp1.setConst(0);
-
-    Result temp2;
-    temp2.setKind(constKind);
-    temp2.setConst(0);
-
-    Result resultInstr = emitIntermediate(IR_cmp,{temp1,temp2});
-    temp2.setConst(x.getFixLoc());
-    emitIntermediate(IR_beq, {resultInstr, temp2});
+    Result temp;temp.setConst(x.getFixLoc());
+    emitIntermediate(IR_bra, {temp});
     x.setFixLoc(IRpc  - 1);
 }
 
-//Fixme: some line is skipped depending on this code
 void Parser ::  Fixup(unsigned long loc)
 {
     IRFormat operationToChange = IRcodes.at(loc);
-    operationToChange.operands.at(1).setKind(constKind);
-    operationToChange.operands.at(1).setConst(IRpc);
+    int operandToFix = 0; //IR_bra
+    if(operationToChange.getIROP() != IR_bra)
+        operandToFix = 1;
+
+    operationToChange.operands.at(operandToFix).setConst(IRpc);
     IRcodes.at(loc) = operationToChange;
 }
 
-//Fixme: until 0 is not valid. another mechanism needed
 void Parser :: FixLink(unsigned long loc)
 {
     unsigned long next;
     while(loc != 0)
     {
         IRFormat operationToChange = IRcodes.at(loc);
-        next = (unsigned long)operationToChange.operands.at(1).getConst();
+        int operandToFix = 0; //IR_bra
+        if(operationToChange.getIROP() != IR_bra)
+            operandToFix = 1;
+        next = (unsigned long)operationToChange.operands.at(operandToFix).getConst();
         Fixup(loc);
         loc = next;
     }
 }
 
+void Parser:: LoadParam(unsigned long numOfParam, int paramIndex, Result param)
+{
+    Result x;
+    Result offset = getAddressInStack(PARAM_IN_STACK + (int)(numOfParam -1) - paramIndex);
+    x = emitIntermediate(IR_load,{offset});
+    emitIntermediate(IR_move,{x,param});
+}
+
+Result Parser:: getAddressInStack(int location)
+{
+    Result offset;offset.setConst(location);
+    Result adjust;adjust.setConst(4);
+    Result FP;FP.setVariable("FP",var_value);
+    offset = emitIntermediate(IR_mul,{offset,adjust});
+    offset = emitIntermediate(IR_adda,{offset,FP});
+    return offset;
+}
+
+void Parser::predefinedFunc()
+{
+    //predefined function
+    SymType symType = functionType;
+    //InputNum
+    addFuncSymbol(symType,"InputNum",0);
+    scopeStack.push("InputNum"); //Current Scope set
+    Result x = emitIntermediate(IR_read,{});
+    Result ret;ret.setVariable("RET",var_value);
+    emitIntermediate(IR_move,{x,ret});
+
+    Result offset = getAddressInStack(RETURN_IN_STACK);
+    x = emitIntermediate(IR_load,{offset});
+    emitIntermediate(IR_bra,{x});
+    scopeStack.pop(); //Current Scope set
+
+    //predefined procedure
+    symType = procedureType;
+
+    //OutputNum
+    addFuncSymbol(symType,"OutputNum",1);
+    scopeStack.push("OutputNum"); //Current Scope set
+    Result param;param.setVariable("x",var_value);
+    LoadParam(1,0,param);
+    emitIntermediate(IR_write,{param});
+    offset = getAddressInStack(RETURN_IN_STACK);
+    x = emitIntermediate(IR_load,{offset});
+    emitIntermediate(IR_bra,{x});
+
+    scopeStack.pop();
+
+    //OutputNewLine
+    addFuncSymbol(symType,"OutputNewLine",0);
+    scopeStack.push("OutputNewLine");
+    emitIntermediate(IR_writeNL,{});
+    offset = getAddressInStack(RETURN_IN_STACK);
+    x = emitIntermediate(IR_load,{offset});
+    emitIntermediate(IR_bra,{x});
+    scopeStack.pop();
+}
 /*
 void Parser::PutF1(int op, int a, int b, int c) {
     buf.at(pc) = op << 26 |

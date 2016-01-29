@@ -8,7 +8,7 @@
 //#define NUMOFREGS 32
 #define RETURN_IN_STACK -1
 #define PRE_FP_IN_STACK 0
-#define ARG_IN_STACK 1
+#define PARAM_IN_STACK 1
 
 #include <array>
 #include <vector>
@@ -25,7 +25,7 @@ typedef enum{
 }Kind;
 
 typedef enum{
-    errType, varType, arrayType, functionType, procedureType
+    errType, varType, arrayType,paramType, functionType, procedureType
 }SymType;
 
 typedef enum{
@@ -35,19 +35,19 @@ typedef enum{
 
 class Result{
 public:
-    Result(){kind = errKind; value = -1; variable = ""; var_type = var_err; instNo = -1; relOp = IR_err, fixLoc = -1;};
+    Result(){kind = errKind; value = -1; variable = ""; var_type = var_err; instNo = -1; relOp = IR_err, fixLoc = -1;}
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
-    void setConst(int arg){value = arg;};
+    void setConst(int arg){kind = constKind;value = arg;};
     int getConst(){return value;};
     //Variable
-    void setVariable(string arg1, VarType arg2){ variable = arg1;var_type = arg2;};
+    void setVariable(string arg1, VarType arg2){kind = varKind; variable = arg1;var_type = arg2;};
     string getVariable(){return variable;};
     bool isReferenceVar(){return (var_type == var_ref);};
     void setVariableType(VarType arg){var_type = arg;};
     //Instruction
-    void setInst(int arg){instNo = arg;};
+    void setInst(int arg){kind = instKind; instNo = arg;};
     int getInst(){return instNo;};
     void setRelOp(IROP arg){relOp = arg;}; //Only for relation
     IROP getRelOp(){return relOp;};  //Only for relation
@@ -86,8 +86,8 @@ public:
     SymType getSymType(){return symType;};
     void setLocation(int arg){ symLoc = arg;};
     int getLocation(){return symLoc;};
-    void setNumbOfParam(int arg){this->numOfParam = numOfParam;};
-    int getNumbOfParam(){ numOfParam++;};
+    void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
+    int getNumOfParam(){ return numOfParam;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
     std::vector<int> symAssignedInst; //only for variable assigned information
@@ -153,7 +153,7 @@ private:
     //Non terminals
     void computation();
     void funcBody();
-    int formalParam();
+    vector<string> formalParam();
     void funcDecl();
     void varDecl();
     Symbol typeDecl();
@@ -162,7 +162,7 @@ private:
     void returnStatement();
     void whileStatement();
     void ifStatement();
-    void funcCall();
+    Result funcCall();
     Result assignment();
     Result relation();
     Result expression();
@@ -178,6 +178,9 @@ private:
     void UnCJF(Result &x);
     void Fixup(unsigned long loc);
     void FixLink(unsigned long loc);
+    void LoadParam(unsigned long numOfParam, int paramIndex, Result param);
+    void predefinedFunc();
+    Result getAddressInStack(int location);
 
 
     int IRpc;
@@ -185,7 +188,7 @@ private:
     std::stack<std::string> scopeStack;
     //std::unordered_map<std::string,Symbol> symTable;
     std::unordered_map<std::string,SymTable> symTableList;
-    void addFuncSymbol(SymType symType, std::string symbolName, int numOfParam);
+    void addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam);
     void addVarSymbol(std::string symbol, SymType symType, int loc, std::vector<int> arrayCapacity);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
