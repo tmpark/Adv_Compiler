@@ -103,14 +103,17 @@ private:
 class SymTable
 {
 public:
-    SymTable(){parentSymTableName = "";};
+    SymTable(){parentSymTableName = "";numOfVar = 0;};
     SymTable(string parentSymTableName)
-    { this->parentSymTableName = parentSymTableName;};
+    { this->parentSymTableName = parentSymTableName;numOfVar = 0;};
     void setParent(string arg){this->parentSymTableName = arg;};
     string getParent(){return parentSymTableName;};
     unordered_map<string,Symbol> symbolList;
+    int getNumOfVar(){return numOfVar;};
+    void increaseNumOfVar(){numOfVar++;};
 private:
     string parentSymTableName;
+    int numOfVar;
 };
 
 class IRFormat
@@ -189,7 +192,7 @@ private:
     //std::unordered_map<std::string,Symbol> symTable;
     std::unordered_map<std::string,SymTable> symTableList;
     void addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam);
-    void addVarSymbol(std::string symbol, SymType symType, int loc, std::vector<int> arrayCapacity);
+    void addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
     Symbol symTableLookup(std::string symbol);

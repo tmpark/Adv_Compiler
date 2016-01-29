@@ -93,7 +93,7 @@ void Parser::computation() {
         Next(); //Consume main
         while(isVarDecl(scannerSym))
             varDecl();
-        predefinedFunc();
+        predefinedFunc(); //Predefined functions
         while(isFuncDecl(scannerSym))
             funcDecl();
         if(scannerSym == beginToken)
@@ -213,10 +213,10 @@ void Parser::funcDecl(){
                 {
                     scopeStack.push(symName); //Current Scope set
                     //Parameters become local variable
-                    int index = 0;
+                    int index = 0;//index in stack
                     for(auto param : parameters)
                     {
-                        addVarSymbol(param,paramType,index,{});//add symbol table
+                        addVarSymbol(param,paramType,{});//add symbol table
                         Result paramVal;paramVal.setVariable(param,var_value);
                         LoadParam(parameters.size(),index,paramVal);//Load parameter value in stack to the variable
                         index++;
@@ -259,22 +259,19 @@ void Parser::varDecl() {
 
 
     Scanner *scanner = Scanner::instance();
-    int numOfVar = 0;
     if(isTypeDecl(scannerSym))
     {
         Symbol x = typeDecl();
         if(scannerSym == identToken)
         {
-            addVarSymbol(scanner->id,x.getSymType(),numOfVar,x.arrayCapacity);
-            numOfVar++;
+            addVarSymbol(scanner->id,x.getSymType(),x.arrayCapacity);
             Next();
             while(scannerSym == commaToken)
             {
                 Next(); // Consume comma
                 if(scannerSym == identToken) //Array do not allow multiple declaration. So it's just variable
                 {
-                    addVarSymbol(scanner->id,x.getSymType(),numOfVar,x.arrayCapacity);
-                    numOfVar++;
+                    addVarSymbol(scanner->id,x.getSymType(),x.arrayCapacity);
                     Next();
                 }
                 else
@@ -869,7 +866,48 @@ void Parser::printSymbolTable()
         SymTable symtable = symTableIter.second;
         for(auto symIter : symtable.symbolList)
         {
-            cout << "\t" << symIter.first << endl;
+            Symbol sym = symIter.second;
+            SymType symType = sym.getSymType();
+
+            if(symType == varType)
+            {
+                cout << "\t" << "var";
+                cout << " " << symIter.first;
+                cout << "\t" << "Location: " << sym.getLocation();
+            }
+            else if(symType == paramType)
+            {
+                cout << "\t" << "param";
+                cout << " " << symIter.first;
+                cout << "\t" << "Location: " << sym.getLocation();
+            }
+            else if(symType == arrayType)
+            {
+                cout << "\t" << "array ";
+                for(auto cap : sym.arrayCapacity)
+                {
+                    cout << "[" << cap << "]";
+                }
+                cout << " " << symIter.first;
+                cout << "\t" << "Location: " << sym.getLocation();
+            }
+
+            else if(symType == functionType)
+            {
+                cout << "\t" << "function";
+                cout << "\t" << symIter.first;
+                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
+            }
+            else if(symType == procedureType)
+            {
+                cout << "\t" << "procedure";
+                cout << "\t" << symIter.first;
+                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
+            }
+
+            cout << endl;
         }
 
     }
@@ -917,7 +955,7 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
 
 }
 
-void Parser::addVarSymbol(std::string symbol, SymType symType, int loc, std::vector<int> arrayCapacity)
+void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity)
 {
     std::string currentScope = scopeStack.top();
     auto symTableIter = symTableList.find(currentScope);
@@ -927,12 +965,16 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, int loc, std::vec
         return;
     }
     SymTable currentSymTable = symTableIter->second;
+    int numOfVar = currentSymTable.getNumOfVar();
 
     //Make symbol
-    Symbol newSymbol(symType,loc,arrayCapacity);
+    Symbol newSymbol(symType,numOfVar,arrayCapacity);
 
     //Update symtable
     currentSymTable.symbolList.insert({symbol,newSymbol});
+
+    currentSymTable.increaseNumOfVar();
+
     //update symtable list
     symTableList.at(currentScope) = currentSymTable;
 
@@ -985,7 +1027,7 @@ void Parser :: UnCJF(Result &x)
 void Parser ::  Fixup(unsigned long loc)
 {
     IRFormat operationToChange = IRcodes.at(loc);
-    int operandToFix = 0; //IR_bra
+    unsigned long operandToFix = 0; //IR_bra
     if(operationToChange.getIROP() != IR_bra)
         operandToFix = 1;
 
@@ -999,7 +1041,7 @@ void Parser :: FixLink(unsigned long loc)
     while(loc != 0)
     {
         IRFormat operationToChange = IRcodes.at(loc);
-        int operandToFix = 0; //IR_bra
+        unsigned long operandToFix = 0; //IR_bra
         if(operationToChange.getIROP() != IR_bra)
             operandToFix = 1;
         next = (unsigned long)operationToChange.operands.at(operandToFix).getConst();
@@ -1048,9 +1090,11 @@ void Parser::predefinedFunc()
     //OutputNum
     addFuncSymbol(symType,"OutputNum",1);
     scopeStack.push("OutputNum"); //Current Scope set
-    Result param;param.setVariable("x",var_value);
-    LoadParam(1,0,param);
-    emitIntermediate(IR_write,{param});
+    string param = "x";
+    addVarSymbol(param,paramType,{});//add symbol table
+    Result paramVal;paramVal.setVariable(param,var_value);
+    LoadParam(1,0,paramVal);//Load parameter value in stack to the variable
+    emitIntermediate(IR_write,{paramVal});
     offset = getAddressInStack(RETURN_IN_STACK);
     x = emitIntermediate(IR_load,{offset});
     emitIntermediate(IR_bra,{x});
