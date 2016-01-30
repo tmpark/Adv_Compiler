@@ -216,9 +216,7 @@ void Parser::funcDecl(){
                     int index = 0;//index in stack
                     for(auto param : parameters)
                     {
-                        addVarSymbol(param,paramType,{});//add symbol table
-                        Result paramVal;paramVal.setVariable(param,var_value);
-                        LoadParam(parameters.size(),index,paramVal);//Load parameter value in stack to the variable
+                        addParamSymbol(param,parameters.size(),index);//add symbol table
                         index++;
                     }
 
@@ -401,7 +399,7 @@ void Parser::returnStatement() {
         if(isExpression(scannerSym))
         {
             x = expression();
-            Result ret;ret.setVariable("RET",var_value);
+            Result ret;ret.setVariable(RETURNADDRESS);
             emitIntermediate(IR_move,{x,ret});
         }
 
@@ -520,7 +518,7 @@ Result Parser::funcCall() {
             functionName = scanner->id;
             Symbol functionSym = symTableLookup(functionName);
             numOfParam = functionSym.getNumOfParam(); //number of function parameter
-            locationOfFunc = functionSym.getLocation();  //function location(instruction number)
+            locationOfFunc = functionSym.getBaseAddr();  //function location(instruction number)
             Next();
             if(scannerSym == openparenToken)
             {
@@ -529,7 +527,7 @@ Result Parser::funcCall() {
                 {
                     int i = 0;
                     x = expression();
-                    Result SP;SP.setVariable("SP",var_value);
+                    Result SP;SP.setVariable(STACKPOINTER);
                     emitIntermediate(IR_store,{x,SP}); //We assume that SP is automatically adjusted (So SP is adjusted and then store them)
                     i++;
                     while(scannerSym == commaToken)
@@ -726,7 +724,7 @@ Result Parser::designator() {
     if(scannerSym == identToken)
     {
         Symbol symInfo = symTableLookup(scanner->id);
-        x.setVariable(scanner->id, var_value);
+        x.setVariable(scanner->id);
 
         Next();
 
@@ -763,12 +761,13 @@ Result Parser::designator() {
         }
         if(symInfo.getSymType() == arrayType)
         {
-            x.setVariableType(var_ref);//x is array. So we have to provide address of x and index
-
+            //x is array. So we have to provide address of x and index
+            Symbol xSymbol = symTableLookup(x.getVariable());
+            x.setConst(xSymbol.getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
 
-            y.setVariable("FP",var_value);//Frame pointer
+            y.setVariable(FRAMEPOINTER);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             y = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
             result = emitIntermediate(IR_load,{y});//load value of the index
@@ -836,10 +835,7 @@ void Parser::printIRCodes()
             }
             else if (operand.getKind() == varKind)
             {
-                if(operand.isReferenceVar())
-                    std::cout << "&" << operand.getVariable();// << "\t"; //address of that variable
-                else
-                    std::cout << operand.getVariable();// << "\t";
+                std::cout << operand.getVariable();// << "\t";
             }
             else if(operand.getKind() == instKind) //Result of that instruction
             {
@@ -873,13 +869,13 @@ void Parser::printSymbolTable()
             {
                 cout << "\t" << "var";
                 cout << " " << symIter.first;
-                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
             else if(symType == paramType)
             {
                 cout << "\t" << "param";
                 cout << " " << symIter.first;
-                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
             else if(symType == arrayType)
             {
@@ -889,21 +885,21 @@ void Parser::printSymbolTable()
                     cout << "[" << cap << "]";
                 }
                 cout << " " << symIter.first;
-                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
 
             else if(symType == functionType)
             {
                 cout << "\t" << "function";
                 cout << "\t" << symIter.first;
-                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Base Address: " << sym.getBaseAddr();
                 cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
             }
             else if(symType == procedureType)
             {
                 cout << "\t" << "procedure";
                 cout << "\t" << symIter.first;
-                cout << "\t" << "Location: " << sym.getLocation();
+                cout << "\t" << "Base Address: " << sym.getBaseAddr();
                 cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
             }
 
@@ -957,6 +953,12 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
 
 void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity)
 {
+    int varSize = 1; // General variable size;
+    for (auto cap : arrayCapacity)
+    {
+        varSize = varSize * cap;
+    }//Array consumes lots of the capacity
+
     std::string currentScope = scopeStack.top();
     auto symTableIter = symTableList.find(currentScope);
     if(symTableIter == symTableList.end())
@@ -965,20 +967,40 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
         return;
     }
     SymTable currentSymTable = symTableIter->second;
-    int numOfVar = currentSymTable.getNumOfVar();
-
+    int localVarTop = currentSymTable.getLocalVarTop() - varSize;//move go downwards
     //Make symbol
-    Symbol newSymbol(symType,numOfVar,arrayCapacity);
+    Symbol newSymbol(symType,localVarTop,arrayCapacity);
 
     //Update symtable
     currentSymTable.symbolList.insert({symbol,newSymbol});
 
-    currentSymTable.increaseNumOfVar();
+    currentSymTable.setLocalVarTop(localVarTop);
 
     //update symtable list
     symTableList.at(currentScope) = currentSymTable;
-
 }
+
+void Parser::addParamSymbol(std::string symbol, int numOfParam, int index)
+{
+    std::string currentScope = scopeStack.top();
+    auto symTableIter = symTableList.find(currentScope);
+    if(symTableIter == symTableList.end())
+    {
+        std::cerr << "Current scope is not valid" << std::endl;
+        return;
+    }
+    SymTable currentSymTable = symTableIter->second;
+    //Make symbol
+    Symbol newSymbol(paramType,PARAM_IN_STACK + (int)(numOfParam -1) - index);
+
+    //Update symtable
+    currentSymTable.symbolList.insert({symbol,newSymbol});
+
+    //update symtable list
+    symTableList.at(currentScope) = currentSymTable;
+}
+
+
 
 Symbol Parser:: symTableLookup(std::string symbol)
 {
@@ -1050,19 +1072,12 @@ void Parser :: FixLink(unsigned long loc)
     }
 }
 
-void Parser:: LoadParam(unsigned long numOfParam, int paramIndex, Result param)
-{
-    Result x;
-    Result offset = getAddressInStack(PARAM_IN_STACK + (int)(numOfParam -1) - paramIndex);
-    x = emitIntermediate(IR_load,{offset});
-    emitIntermediate(IR_move,{x,param});
-}
 
 Result Parser:: getAddressInStack(int location)
 {
     Result offset;offset.setConst(location);
     Result adjust;adjust.setConst(4);
-    Result FP;FP.setVariable("FP",var_value);
+    Result FP;FP.setVariable(FRAMEPOINTER);
     offset = emitIntermediate(IR_mul,{offset,adjust});
     offset = emitIntermediate(IR_adda,{offset,FP});
     return offset;
@@ -1076,7 +1091,7 @@ void Parser::predefinedFunc()
     addFuncSymbol(symType,"InputNum",0);
     scopeStack.push("InputNum"); //Current Scope set
     Result x = emitIntermediate(IR_read,{});
-    Result ret;ret.setVariable("RET",var_value);
+    Result ret;ret.setVariable(RETURNADDRESS);
     emitIntermediate(IR_move,{x,ret});
 
     Result offset = getAddressInStack(RETURN_IN_STACK);
@@ -1091,9 +1106,8 @@ void Parser::predefinedFunc()
     addFuncSymbol(symType,"OutputNum",1);
     scopeStack.push("OutputNum"); //Current Scope set
     string param = "x";
-    addVarSymbol(param,paramType,{});//add symbol table
-    Result paramVal;paramVal.setVariable(param,var_value);
-    LoadParam(1,0,paramVal);//Load parameter value in stack to the variable
+    Result paramVal;paramVal.setVariable(param);
+    addParamSymbol(param,1,0);
     emitIntermediate(IR_write,{paramVal});
     offset = getAddressInStack(RETURN_IN_STACK);
     x = emitIntermediate(IR_load,{offset});

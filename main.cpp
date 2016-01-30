@@ -5,7 +5,7 @@ using namespace std;
 
 int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
-    string fileName = "test002.txt";
+    string fileName = "cell.txt";
     RC rc = -1;
 
 #if NO_PARSE

@@ -9,6 +9,10 @@
 #define RETURN_IN_STACK -1
 #define PRE_FP_IN_STACK 0
 #define PARAM_IN_STACK 1
+#define LOCAL_IN_STACK -1 //Same sa return pointer(variable should be saved after moving)
+#define FRAMEPOINTER "$FP"
+#define STACKPOINTER "$SP"
+#define RETURNADDRESS "$RET"
 
 #include <array>
 #include <vector>
@@ -28,24 +32,20 @@ typedef enum{
     errType, varType, arrayType,paramType, functionType, procedureType
 }SymType;
 
-typedef enum{
-    var_err, var_ref, var_value
-} VarType;
+
 
 
 class Result{
 public:
-    Result(){kind = errKind; value = -1; variable = ""; var_type = var_err; instNo = -1; relOp = IR_err, fixLoc = -1;}
+    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;}
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
     void setConst(int arg){kind = constKind;value = arg;};
     int getConst(){return value;};
     //Variable
-    void setVariable(string arg1, VarType arg2){kind = varKind; variable = arg1;var_type = arg2;};
+    void setVariable(string arg1){kind = varKind; variable = arg1;};
     string getVariable(){return variable;};
-    bool isReferenceVar(){return (var_type == var_ref);};
-    void setVariableType(VarType arg){var_type = arg;};
     //Instruction
     void setInst(int arg){kind = instKind; instNo = arg;};
     int getInst(){return instNo;};
@@ -59,7 +59,6 @@ private:
     int value;
     //varKind
     std::string variable;
-    VarType var_type;
     //instKind
     int instNo;
     IROP relOp ;
@@ -75,17 +74,17 @@ public:
     Symbol(){ symType = errType; arrayCapacity = {}; symAssignedInst = {};
         numOfParam = 0;}
     Symbol(SymType symType, int loc)
-    { this->symType = symType;this->symLoc = loc;
+    { this->symType = symType;this->symBaseAddr = loc;
         numOfParam = 0;};
     Symbol(SymType symType, int loc, vector<int> arrayCapacity)
-    { this->symType = symType; this->symLoc = loc; this->arrayCapacity = arrayCapacity;
+    { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
         numOfParam = 0;};
     Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
-    { this->symType = symType; this->symLoc = loc; this->numOfParam = numOfParam;};
+    { this->symType = symType; this->symBaseAddr = loc; this->numOfParam = numOfParam;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
-    void setLocation(int arg){ symLoc = arg;};
-    int getLocation(){return symLoc;};
+    void setBaseAddr(int arg){ symBaseAddr = arg;};
+    int getBaseAddr(){return symBaseAddr;};
     void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
     int getNumOfParam(){ return numOfParam;};
 
@@ -94,7 +93,7 @@ public:
 
 private:
     SymType symType; //var, array, function, procedure
-    int symLoc; //Location of symbol
+    int symBaseAddr; //Location of symbol
     int numOfParam; //Only for function
 
 };
@@ -103,17 +102,19 @@ private:
 class SymTable
 {
 public:
-    SymTable(){parentSymTableName = "";numOfVar = 0;};
+    SymTable(){parentSymTableName = "";
+        localVarTop = LOCAL_IN_STACK;};
     SymTable(string parentSymTableName)
-    { this->parentSymTableName = parentSymTableName;numOfVar = 0;};
+    { this->parentSymTableName = parentSymTableName;
+        localVarTop = LOCAL_IN_STACK;};
     void setParent(string arg){this->parentSymTableName = arg;};
     string getParent(){return parentSymTableName;};
     unordered_map<string,Symbol> symbolList;
-    int getNumOfVar(){return numOfVar;};
-    void increaseNumOfVar(){numOfVar++;};
+    int getLocalVarTop(){return localVarTop;};
+    void setLocalVarTop(int arg){ localVarTop = arg;};
 private:
     string parentSymTableName;
-    int numOfVar;
+    int localVarTop;
 };
 
 class IRFormat
@@ -181,9 +182,9 @@ private:
     void UnCJF(Result &x);
     void Fixup(unsigned long loc);
     void FixLink(unsigned long loc);
-    void LoadParam(unsigned long numOfParam, int paramIndex, Result param);
     void predefinedFunc();
     Result getAddressInStack(int location);
+
 
 
     int IRpc;
@@ -193,6 +194,7 @@ private:
     std::unordered_map<std::string,SymTable> symTableList;
     void addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam);
     void addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity);
+    void addParamSymbol(std::string symbol, int numOfParam, int index);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
     Symbol symTableLookup(std::string symbol);
