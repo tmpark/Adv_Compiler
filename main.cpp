@@ -5,12 +5,18 @@ using namespace std;
 
 int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
-    string fileName = "cell.txt";
+    string graphFolder = "/home/tmpark/ClionProjects/Adv_Compiler/graph/";
+    string sourceFileName = "factorial";
+    string sourceFileFormat = ".txt";
+    string graphFileName = "graph.vcg";
+    string xvcg = "xvcg -font rk24";
     RC rc = -1;
+
+
 
 #if NO_PARSE
     Scanner *scanner = Scanner :: instance();
-    rc = scanner->openFile(folder + fileName);
+    rc = scanner->openFile(folder + sourceFileName);
     if(rc == -1)
         return 0;
     while(scanner->GetSym() != eofToken);
@@ -18,12 +24,17 @@ int main() {
 
 #else
     Parser *parser = Parser :: instance();
-    rc = parser->openFile(folder + fileName);
+    rc = parser->openFile(folder + sourceFileName + sourceFileFormat);
     if(rc == -1)
         return 0;
     parser->startParse();
-    parser->printIRCodes(); //Debug
-    parser->printSymbolTable(); //Debug
+    parser->printBlock();
+    parser->createGraph(graphFolder + sourceFileName + "_");
+    //string visualizeGraph = xvcg + " " + folder + graphFileName;
+    //system(visualizeGraph.c_str());
+
+    //parser->printIRCodes(parser->IRCodes); //Debug
+    //parser->printSymbolTable(); //Debug
     parser->closeFile();
 
 #endif

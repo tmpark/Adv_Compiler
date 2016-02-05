@@ -23,7 +23,7 @@ FileReader* FileReader::instance() {
 }
 
 RC FileReader::openFile(const std::string &fileName) {
-    fileStream.open(fileName.c_str(), std::fstream::in);
+    fileStream.open(fileName.c_str(), std::fstream::in | std::fstream::out);
     if(!fileStream.is_open())
     {
         Error("File not exists.");

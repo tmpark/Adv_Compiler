@@ -378,3 +378,14 @@ std::vector<std::string> splitString(std::string stringToSplit)
     }
     return playerInfoVector;
 }
+
+bool isBranchCond(IROP op)
+{
+    return (op == IR_bra) ||
+            (op == IR_bne) ||
+            (op == IR_beq) ||
+            (op == IR_ble) ||
+            (op == IR_blt) ||
+            (op == IR_bge) ||
+            (op == IR_bgt);
+}

@@ -20,18 +20,22 @@
 #include <map>
 #include <memory>
 #include "Scanner.h"
+#include "GraphDrawer.h"
 
 using namespace :: std;
 
 
 typedef enum{
-    errKind,constKind,varKind,instKind
+    errKind,constKind,varKind,instKind,blockKind
 }Kind;
 
 typedef enum{
     errType, varType, arrayType,paramType, functionType, procedureType
 }SymType;
 
+typedef enum{
+    blk_normal, blk_cond
+}BlockKind;
 
 
 
@@ -49,6 +53,8 @@ public:
     //Instruction
     void setInst(int arg){kind = instKind; instNo = arg;};
     int getInst(){return instNo;};
+    void setBlock(int arg){kind = blockKind; blockNo = arg;};
+    int getBlock(){return blockNo;};
     void setRelOp(IROP arg){relOp = arg;}; //Only for relation
     IROP getRelOp(){return relOp;};  //Only for relation
     void setFixLoc(int arg){fixLoc = arg;};//Only for relation
@@ -61,6 +67,7 @@ private:
     std::string variable;
     //instKind
     int instNo;
+    int blockNo;
     IROP relOp ;
     int fixLoc;
 };
@@ -120,20 +127,43 @@ private:
 class IRFormat
 {
 public:
-    IRFormat(){lineNo = -1; ir_op = IR_err;}
+    IRFormat(){ instNo = -1; ir_op = IR_err;}
 
-    void setLineNo(int arg){lineNo = arg;};
-    int getLineNo(){return lineNo;};
+    void setLineNo(int arg){ instNo = arg;};
+    int getLineNo(){return instNo;};
 
     void setIROP(IROP arg){ir_op = arg;};
     IROP getIROP(){return ir_op;};
     std::vector<Result> operands;
 
 private:
-    int lineNo;
+    int instNo;
     IROP ir_op;
 
 };
+
+
+class BasicBlock
+{
+public:
+    BasicBlock(){blockNum = 0;blkKind = blk_normal;trueEdge = -1;};
+    BasicBlock(int blockNum){this->blockNum = blockNum;blkKind = blk_normal;trueEdge = -1;};
+    BasicBlock(int blockNum,string blockName){this->blockNum = blockNum;this->blockName = blockName;blkKind = blk_normal;trueEdge = -1;};
+    int getBlockNum(){return blockNum;};
+    bool isTrueEdge(int edge){return edge == trueEdge;};
+    bool isCondBlock(){return blkKind == blk_cond;};
+    void setTrueEdge(int edge){blkKind = blk_cond; trueEdge = edge;};
+    string getBlockName(){return blockName;};
+
+    vector<IRFormat> irCodes;
+    vector<int> forwardEdgesTo;
+private:
+    int blockNum;
+    BlockKind blkKind;
+    string blockName;
+    int trueEdge;
+};
+
 
 class Parser {
 
@@ -141,11 +171,13 @@ public:
     Parser();
     static Parser* instance();
     RC openFile(const std::string &fileName);
-    void startParse();
     RC closeFile();
-    void printIRCodes();
+    void startParse();
+    void printIRCodes(vector<IRFormat> codes);
     void printSymbolTable();
-
+    void printBlock();
+    void createGraph(const string &folderName);
+    string getCodeString(IRFormat code);
 private:
 
     //Error message
@@ -188,13 +220,20 @@ private:
 
 
     int IRpc;
-    std::vector<IRFormat> IRcodes;
+    std::vector<IRFormat> IRCodes;
     std::stack<std::string> scopeStack;
-    //std::unordered_map<std::string,Symbol> symTable;
     std::unordered_map<std::string,SymTable> symTableList;
+    //std::vector<BasicBlock> basicBlockList;
+    std::unordered_map<std::string,unordered_map<int,BasicBlock>> functionList;
+    BasicBlock currentBlock;
+    unordered_map<int,int> instructionBlockPair;
+    void finalizeStartNewBlock(bool directFlowExist, string newBlockName, bool isCurrentCond);
+;
+    int numOfBlock;
+
     void addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam);
     void addVarSymbol(std::string symbol, SymType symType, std::vector<int> arrayCapacity);
-    void addParamSymbol(std::string symbol, int numOfParam, int index);
+    void addParamSymbol(std::string symbol, size_t numOfParam, int index);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
     Symbol symTableLookup(std::string symbol);

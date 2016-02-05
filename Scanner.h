@@ -8,6 +8,7 @@
 
 #include "FileReader.h"
 
+using namespace std;
 
 typedef enum {
     STAT_START, STAT_NUM, STAT_ID, STAT_EQ, STAT_NE, STAT_L, STAT_R, STAT_DONE, STAT_COMMENT, STAT_SLASH
@@ -26,6 +27,7 @@ public:
     std::string id;
     void Error(std::string state, std::string missingChar);
     RC openFile(const std::string &fileName);
+
     RC closeFile();
 
 private:

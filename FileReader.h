@@ -10,7 +10,9 @@
 #include "Helper.h"
 #define LINEBUFSIZE 4096
 
-typedef int RC;
+using namespace std;
+
+
 
 class FileReader {
 

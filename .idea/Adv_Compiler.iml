@@ -4,11 +4,13 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/Scanner.cpp" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Helper.cpp" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/CMakeLists.txt" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/GraphDrawer.h" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/GraphDrawer.cpp" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Helper.h" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/main.cpp" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Parser.cpp" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Scanner.h" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/CMakeLists.txt" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/FileReader.cpp" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/FileReader.h" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Parser.h" isTestSource="false" />

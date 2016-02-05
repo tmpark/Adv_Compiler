@@ -14,6 +14,8 @@ Parser :: Parser()
     IRpc = 0;
     //FIXME
     numOfSym = 0;
+    numOfBlock = 0;
+    currentBlock = BasicBlock(0,"entry");
 }
 
 
@@ -83,22 +85,27 @@ void Parser::computation() {
 
     SymTable newSymTable;
     symTableList.insert({"main",newSymTable});
-    Result tempJumpLoc;tempJumpLoc.setConst(0);
-    emitIntermediate(IR_bra,{tempJumpLoc});
+    //Result tempJumpLoc;tempJumpLoc.setConst(0);
+    //emitIntermediate(IR_bra,{tempJumpLoc});
+    //Default block for jump to the main
+    //finalizeStartNewBlock(false);
 
     if(scannerSym == mainToken)
     {
         scopeStack.push("main"); //main function scope start
+        unordered_map<int,BasicBlock> emptyBasicBlockList;
+        functionList.insert({"main",emptyBasicBlockList});
 
         Next(); //Consume main
         while(isVarDecl(scannerSym))
             varDecl();
         predefinedFunc(); //Predefined functions
-        while(isFuncDecl(scannerSym))
+        while(isFuncDecl(scannerSym)) {
             funcDecl();
+        }
         if(scannerSym == beginToken)
         {
-            Fixup(0);//Fix bra to first reach out here
+            //Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
             if(isStatSequence(scannerSym))
             {
@@ -107,6 +114,7 @@ void Parser::computation() {
                 {
                     Next(); //Consume end Token
                     if(scannerSym == periodToken) {
+                        finalizeStartNewBlock(false,"fuckedup", false);
                         scopeStack.pop(); //end of main function
                         Next(); //Comsume period Token
                     }
@@ -201,6 +209,9 @@ void Parser::funcDecl(){
         if(scannerSym == identToken)
         {
             string symName = scanner->id;
+            unordered_map<int,BasicBlock> emptyBasicBlockList;
+            functionList.insert({symName,emptyBasicBlockList}); //New function inserted in function list
+
             Next();
             vector<string> parameters;
             if(isFormalParam(scannerSym))
@@ -223,11 +234,16 @@ void Parser::funcDecl(){
 
                     funcBody();
 
-                    //Return code emission
-                    Result offset = getAddressInStack(RETURN_IN_STACK);
-                    Result x = emitIntermediate(IR_load,{offset});
-                    emitIntermediate(IR_bra,{x});
+                    if(symType == procedureType) //Procedure type does not have explicit return
+                    {
+                        //Return code emission
+                        Result offset = getAddressInStack(RETURN_IN_STACK);
+                        Result x = emitIntermediate(IR_load,{offset});
+                        emitIntermediate(IR_bra,{x});
+                    }
 
+                    //At the end of function means end of the block
+                    finalizeStartNewBlock(false, "entry", false);
                     scopeStack.pop(); //Go out of function
 
                     if(scannerSym == semiToken)
@@ -401,6 +417,9 @@ void Parser::returnStatement() {
             x = expression();
             Result ret;ret.setVariable(RETURNADDRESS);
             emitIntermediate(IR_move,{x,ret});
+            Result offset = getAddressInStack(RETURN_IN_STACK);
+            Result x = emitIntermediate(IR_load,{offset});
+            emitIntermediate(IR_bra,{x});
         }
 
     }
@@ -416,8 +435,14 @@ void Parser::whileStatement() {
         Next();
         if(isRelation(scannerSym))
         {
+            //At the start of while, new Block starts
+            finalizeStartNewBlock(true,"while.cond",false);
+
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
+
+            //After the condition, also new block starts
+            finalizeStartNewBlock(true,"whild.body",true);
             if(scannerSym == doToken)
             {
                 Next();
@@ -430,7 +455,15 @@ void Parser::whileStatement() {
                         Next();
                         //Next to od token
                         follow = x;
-                        UnCJF(follow); //unconditional branch to x.fixloc
+                        //Fixme: if Phi exists, should jump to the first phi
+                        follow.setFixLoc(follow.getFixLoc() - 1);//jump one instruction more because while should check condition for every iteration
+                        //cmp <- follow.fixloc
+                        //bsh <- x.fixloc
+
+                        currentBlock.forwardEdgesTo.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
+                        UnCJF(follow); //unconditional branch follow.fixloc
+
+                        finalizeStartNewBlock(false,"while.end",false);//After unconditional jump means going back without reservation
                         Fixup((unsigned long)x.getFixLoc()); //fix so that while branch here
                     }
                     else
@@ -458,6 +491,9 @@ void Parser::ifStatement() {
         {
             x = relation();
             CondJF(x);
+
+            //In if statement, after the condition new block starts
+            finalizeStartNewBlock(true,"if.then",true);
             if(scannerSym == thenToken)
             {
                 Next();
@@ -471,6 +507,11 @@ void Parser::ifStatement() {
                     {
                         Next();
                         UnCJF(follow);
+                        //Until this point, still in the then block
+
+                        //The start of else is new block
+                        finalizeStartNewBlock(false,"if.else",false);//if then is performed it should avoid else
+
                         Fixup((unsigned long)x.getFixLoc());
                         if(isStatSequence(scannerSym))
                         {
@@ -479,8 +520,10 @@ void Parser::ifStatement() {
                         else
                             Error("ifStatement",{"statSequence"});
                     }
-                    else
-                        Fixup((unsigned long)x.getFixLoc());
+                    else {
+                        finalizeStartNewBlock(true,"if.end",false); //After all if related statements end, new block start
+                        Fixup((unsigned long) x.getFixLoc());
+                    }
                     if(scannerSym == fiToken)
                     {
                         Next();
@@ -527,23 +570,28 @@ Result Parser::funcCall() {
                 {
                     int i = 0;
                     x = expression();
-                    Result SP;SP.setVariable(STACKPOINTER);
-                    emitIntermediate(IR_store,{x,SP}); //We assume that SP is automatically adjusted (So SP is adjusted and then store them)
-                    i++;
-                    while(scannerSym == commaToken)
+
+                    //Because of predefined function
+                    if(functionName != "OutputNum")
                     {
-                        Next();
-                        if(isExpression(scannerSym))
+                        Result SP;SP.setVariable(STACKPOINTER);
+                        emitIntermediate(IR_store,{x,SP}); //We assume that SP is automatically adjusted (So SP is adjusted and then store them)
+                        i++;
+                        while(scannerSym == commaToken)
                         {
-                            x = expression();
-                            emitIntermediate(IR_store,{x,SP});
-                            i++;
+                            Next();
+                            if(isExpression(scannerSym))
+                            {
+                                x = expression();
+                                emitIntermediate(IR_store,{x,SP});
+                                i++;
+                            }
+                            else
+                                Error("funcCall",{"expression"});
                         }
-                        else
-                            Error("funcCall",{"expression"});
+                        if(i != numOfParam)
+                            cerr << "Number of parameter not matched" << endl;
                     }
-                    if(i != numOfParam)
-                        cerr << "Number of parameter not matched" << endl;
                 }
 
                 if(scannerSym == closeparenToken)
@@ -554,8 +602,20 @@ Result Parser::funcCall() {
                 else
                     Error("funcCall",{getTokenStr(closeparenToken)});
             }
-            Result jumpLocation;jumpLocation.setConst(locationOfFunc);
-            result = emitIntermediate(IR_bra,{jumpLocation});
+
+            //Deal with predefined function
+            if(functionName == "InputNum")
+                result = emitIntermediate(IR_read,{});
+            else if (functionName =="OutputNum")
+                result = emitIntermediate(IR_write,{x});
+            else if (functionName =="OutputNewLine")
+                result = emitIntermediate(IR_writeNL,{});
+                //General Fucntion
+            else
+            {
+                Result jumpLocation;jumpLocation.setConst(locationOfFunc);
+                result = emitIntermediate(IR_bra,{jumpLocation});
+            }
         }
         else
             Error("funcCall",{getTokenStr(identToken)});
@@ -797,29 +857,157 @@ IROP Parser::relOp() {
 
 Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
 {
-
+    //Normal IR generation
     Result result;
     result.setInst(IRpc);
-
     IRFormat ir_line;
     ir_line.setLineNo(IRpc);
     ir_line.setIROP(irOp);
     for(auto& x_i : x)
         ir_line.operands.push_back(x_i);
+    IRCodes.push_back(ir_line);
 
-    IRcodes.push_back(ir_line);
+
+    //IR in BasicBlock generation
+    //Operands in branch should point to a block
+    if(isBranchCond(irOp))
+    {
+        Result operandToChange;
+        unsigned long operandIndex = 0;
+        if(ir_line.operands.size() > 1)
+            operandIndex = 1;
+        operandToChange = ir_line.operands.at(operandIndex);
+
+        //only care about jump to the inst more than 1(no jump to main) and direct jump(do not allow jump to location stored in address)
+        if(operandToChange.getConst() > 0 && operandToChange.getKind() == constKind)
+        {
+            int blockNum = instructionBlockPair.at(operandToChange.getConst());
+            operandToChange.setBlock(blockNum);
+            ir_line.operands.at(operandIndex) = operandToChange;
+        }
+    }
+
+    currentBlock.irCodes.push_back(ir_line);
+    instructionBlockPair.insert({IRpc, currentBlock.getBlockNum()});
 
     IRpc++;
-
     return result;
 }
 
-void Parser::printIRCodes()
+string Parser :: getCodeString(IRFormat code)
+{
+    string tab = "  ";
+    string result = to_string(code.getLineNo()) + tab + getIROperatorString(code.getIROP());
+    int index = 0;
+    for(auto operand : code.operands)
+    {
+        if(operand.getKind() == errKind)
+            break;
+
+        if(operand.getKind() == constKind)
+        {
+            result = result + tab + to_string(operand.getConst());// << "\t";
+        }
+        else if (operand.getKind() == varKind)
+        {
+            result = result + tab + operand.getVariable();// << "\t";
+        }
+        else if(operand.getKind() == instKind) //Result of that instruction
+        {
+            result = result + tab + "(" + to_string(operand.getInst()) + ")";// << "\t";
+        }
+        else if(operand.getKind() == blockKind) //Result of that instruction
+        {
+            result = result + tab + "[" + to_string(operand.getBlock()) + "]";// << "\t";
+        }
+        else {
+            std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
+        }
+        index++;
+    }
+    return result;
+}
+
+
+void Parser:: createGraph(const string &folderName)
+{
+    string formatName = ".dot";
+    RC rc = -1;
+
+    for(auto function : functionList) {
+        string functionName = function.first;
+        string fileName = folderName + functionName + formatName;
+
+        GraphDrawer *graphDrawer = GraphDrawer::instance();
+        rc = graphDrawer->createFile(fileName);
+        if (rc == -1)
+            return;
+        rc = graphDrawer->openFile(fileName);
+        if (rc == -1) {
+            graphDrawer->destroyFile(fileName);
+            return;
+        }
+
+        graphDrawer->writePreliminary(functionName);
+        unordered_map<int, BasicBlock> basicBlockList = function.second;
+        for (auto blockPair : basicBlockList) {
+            BasicBlock block = blockPair.second;
+            graphDrawer->writeNodeStart(block.getBlockNum(), block.getBlockName());
+            for (auto code : block.irCodes) {
+                string codeString = getCodeString(code);
+                graphDrawer->writeCode(codeString);
+            }
+            if (block.isCondBlock()) {
+                graphDrawer->writeCodeForCond();
+            }
+            graphDrawer->writeNodeEnd();
+
+            for (auto dest : block.forwardEdgesTo) {
+                EDGETYPE edgeType = edge_normal;
+                if (block.isCondBlock()) {
+                    if (block.isTrueEdge(dest)) {
+                        edgeType = edge_true;
+                    }
+                    else {
+                        edgeType = edge_false;
+                    }
+                }
+                graphDrawer->writeEdge(block.getBlockNum(), dest, edgeType);
+            }
+        }
+        graphDrawer->writeEnd();
+        graphDrawer->closeFile();
+    }
+
+
+}
+
+
+void Parser::printBlock()
+{
+    for(auto function : functionList)
+    {
+        unordered_map<int,BasicBlock> basicBlockList = function.second;
+        for(auto blockPair : basicBlockList)
+        {
+            BasicBlock block = blockPair.second;
+            cout<<"Block " << block.getBlockNum() << " -------------------------------------" << endl;
+            printIRCodes(block.irCodes);
+            cout<<"Forward Edge to";
+            for(auto edge : block.forwardEdgesTo)
+                cout << " " << edge;
+            cout << endl;
+            cout<< "--------------------------------------------" << endl;
+        }
+    }
+
+}
+
+
+void Parser::printIRCodes(vector<IRFormat> codes)
 {
 
-    for(auto code : IRcodes) {
-
-
+    for(auto code : codes) {
         std::string op = getIROperatorString(code.getIROP());
         std::cout << code.getLineNo() << "\t" << op << "\t";
 
@@ -840,6 +1028,10 @@ void Parser::printIRCodes()
             else if(operand.getKind() == instKind) //Result of that instruction
             {
                 std::cout << "(" << operand.getInst() << ")";// << "\t";
+            }
+            else if(operand.getKind() == blockKind) //Result of that instruction
+            {
+                std::cout << "[" << operand.getBlock() << "]";// << "\t";
             }
             else {
                 std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
@@ -980,7 +1172,7 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
     symTableList.at(currentScope) = currentSymTable;
 }
 
-void Parser::addParamSymbol(std::string symbol, int numOfParam, int index)
+void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
 {
     std::string currentScope = scopeStack.top();
     auto symTableIter = symTableList.find(currentScope);
@@ -991,7 +1183,7 @@ void Parser::addParamSymbol(std::string symbol, int numOfParam, int index)
     }
     SymTable currentSymTable = symTableIter->second;
     //Make symbol
-    Symbol newSymbol(paramType,PARAM_IN_STACK + (int)(numOfParam -1) - index);
+    Symbol newSymbol(paramType,PARAM_IN_STACK + ((int)numOfParam -1) - index);
 
     //Update symtable
     currentSymTable.symbolList.insert({symbol,newSymbol});
@@ -1041,20 +1233,40 @@ void Parser :: CondJF(Result &x)
 
 void Parser :: UnCJF(Result &x)
 {
-    Result temp;temp.setConst(x.getFixLoc());
+    int destinationInst = x.getFixLoc();
+    //int destinationBlock = instructionBlockPair.at(destinationInst);
+
+    //Make forward edge to the block which include instr destinationInst
+    //currentBlock.forwardEdgesTo.push_back(destinationBlock);
+
+    Result temp;temp.setConst(destinationInst);
+    //Result temp;temp.setBlock(destinationBlock);
     emitIntermediate(IR_bra, {temp});
-    x.setFixLoc(IRpc  - 1);
+    x.setFixLoc(IRpc - 1);
 }
 
 void Parser ::  Fixup(unsigned long loc)
 {
-    IRFormat operationToChange = IRcodes.at(loc);
+    IRFormat operationToChange = IRCodes.at(loc);
     unsigned long operandToFix = 0; //IR_bra
     if(operationToChange.getIROP() != IR_bra)
         operandToFix = 1;
 
     operationToChange.operands.at(operandToFix).setConst(IRpc);
-    IRcodes.at(loc) = operationToChange;
+    IRCodes.at(loc) = operationToChange;
+
+    //Block with fixed instruction also has forward edge to current PC
+    unsigned long targetBlockNum = instructionBlockPair.at(loc);
+
+    string currentScope = scopeStack.top();
+    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+    BasicBlock targetBlock = basicBlockList.at(targetBlockNum);
+    targetBlock.forwardEdgesTo.push_back(currentBlock.getBlockNum());
+    operationToChange.operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
+    //Assume that the last instruction would be branch
+    targetBlock.irCodes.back() = operationToChange;
+    basicBlockList.at(targetBlockNum) = targetBlock;
+    functionList.at(currentScope) = basicBlockList;
 }
 
 void Parser :: FixLink(unsigned long loc)
@@ -1062,7 +1274,7 @@ void Parser :: FixLink(unsigned long loc)
     unsigned long next;
     while(loc != 0)
     {
-        IRFormat operationToChange = IRcodes.at(loc);
+        IRFormat operationToChange = IRCodes.at(loc);
         unsigned long operandToFix = 0; //IR_bra
         if(operationToChange.getIROP() != IR_bra)
             operandToFix = 1;
@@ -1089,40 +1301,60 @@ void Parser::predefinedFunc()
     SymType symType = functionType;
     //InputNum
     addFuncSymbol(symType,"InputNum",0);
-    scopeStack.push("InputNum"); //Current Scope set
-    Result x = emitIntermediate(IR_read,{});
-    Result ret;ret.setVariable(RETURNADDRESS);
-    emitIntermediate(IR_move,{x,ret});
+    //scopeStack.push("InputNum"); //Current Scope set
+    //Result x = emitIntermediate(IR_read,{});
+    //Result ret;ret.setVariable(RETURNADDRESS);
+    //emitIntermediate(IR_move,{x,ret});
 
-    Result offset = getAddressInStack(RETURN_IN_STACK);
-    x = emitIntermediate(IR_load,{offset});
-    emitIntermediate(IR_bra,{x});
-    scopeStack.pop(); //Current Scope set
+    //Result offset = getAddressInStack(RETURN_IN_STACK);
+    //x = emitIntermediate(IR_load,{offset});
+    //emitIntermediate(IR_bra,{x});
+    //scopeStack.pop(); //Current Scope set
 
     //predefined procedure
     symType = procedureType;
 
     //OutputNum
     addFuncSymbol(symType,"OutputNum",1);
-    scopeStack.push("OutputNum"); //Current Scope set
-    string param = "x";
-    Result paramVal;paramVal.setVariable(param);
-    addParamSymbol(param,1,0);
-    emitIntermediate(IR_write,{paramVal});
-    offset = getAddressInStack(RETURN_IN_STACK);
-    x = emitIntermediate(IR_load,{offset});
-    emitIntermediate(IR_bra,{x});
+    //scopeStack.push("OutputNum"); //Current Scope set
+    //string param = "x";
+    //Result paramVal;paramVal.setVariable(param);
+    //addParamSymbol(param,1,0);
+    //emitIntermediate(IR_write,{paramVal});
+    //offset = getAddressInStack(RETURN_IN_STACK);
+    //x = emitIntermediate(IR_load,{offset});
+    //emitIntermediate(IR_bra,{x});
 
-    scopeStack.pop();
+    //scopeStack.pop();
 
     //OutputNewLine
     addFuncSymbol(symType,"OutputNewLine",0);
-    scopeStack.push("OutputNewLine");
-    emitIntermediate(IR_writeNL,{});
-    offset = getAddressInStack(RETURN_IN_STACK);
-    x = emitIntermediate(IR_load,{offset});
-    emitIntermediate(IR_bra,{x});
-    scopeStack.pop();
+    //scopeStack.push("OutputNewLine");
+    //emitIntermediate(IR_writeNL,{});
+    //offset = getAddressInStack(RETURN_IN_STACK);
+    //x = emitIntermediate(IR_load,{offset});
+    //emitIntermediate(IR_bra,{x});
+    //scopeStack.pop();
+}
+
+void Parser::finalizeStartNewBlock(bool directFlowExist, string newBlockName, bool isCurrentCond)
+{
+    if(currentBlock.irCodes.size() != 0) {
+        string currentScope = scopeStack.top();
+        unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+        int currentBlockNum = currentBlock.getBlockNum();
+        //int nextBlockNum = numOfBlock + 1;
+        if(directFlowExist) {
+            currentBlock.forwardEdgesTo.push_back(currentBlockNum + 1);
+            if(isCurrentCond)
+                currentBlock.setTrueEdge(currentBlockNum + 1);
+        }
+        basicBlockList.insert({currentBlockNum,currentBlock});
+        functionList.at(currentScope) = basicBlockList;
+        currentBlock = BasicBlock(currentBlockNum + 1,newBlockName);
+        numOfBlock++;
+    }
+    return ;
 }
 /*
 void Parser::PutF1(int op, int a, int b, int c) {

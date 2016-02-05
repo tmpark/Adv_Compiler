@@ -8,7 +8,7 @@
 #define SOURCE_CODE_PRINT false
 #define TraceScan false
 #define NO_PARSE false
-
+typedef int RC;
 
 #include <string>
 #include <unordered_map>
@@ -71,6 +71,9 @@ typedef enum{
     IR_bra, IR_bne, IR_beq, IR_ble, IR_blt, IR_bge, IR_bgt, IR_read, IR_write, IR_writeNL
 }IROP;
 
+typedef enum{
+    edge_normal, edge_true, edge_false
+}EDGETYPE;
 
 TokenType getTypeOfOneToken(char c);
 void printToken(TokenType tokenTypeReturned,std::string idConstructed);
@@ -98,7 +101,7 @@ std::string getIROperatorString(IROP irOp);
 IROP getIRopFromToken(TokenType scannerSym);
 IROP negateCondition(IROP ir_op);
 std::vector<std::string> splitString(std::string stringToSplit);
-
+bool isBranchCond(IROP op);
 
 
 
