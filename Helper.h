@@ -75,6 +75,10 @@ typedef enum{
     edge_normal, edge_true, edge_false
 }EDGETYPE;
 
+typedef enum{
+    graph_CFG, graph_DT
+}GRAPHTYPE;
+
 TokenType getTypeOfOneToken(char c);
 void printToken(TokenType tokenTypeReturned,std::string idConstructed);
 

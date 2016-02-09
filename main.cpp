@@ -6,7 +6,7 @@ using namespace std;
 int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
     string graphFolder = "/home/tmpark/ClionProjects/Adv_Compiler/graph/";
-    string sourceFileName = "factorial";
+    string sourceFileName = "big";
     string sourceFileFormat = ".txt";
     string graphFileName = "graph.vcg";
     string xvcg = "xvcg -font rk24";
@@ -29,7 +29,8 @@ int main() {
         return 0;
     parser->startParse();
     parser->printBlock();
-    parser->createGraph(graphFolder + sourceFileName + "_");
+    parser->createControlFlowGraph(graphFolder,sourceFileName);
+    parser->createDominantGraph(graphFolder,sourceFileName);
     //string visualizeGraph = xvcg + " " + folder + graphFileName;
     //system(visualizeGraph.c_str());
 

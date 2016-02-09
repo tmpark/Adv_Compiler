@@ -56,12 +56,17 @@ RC GraphDrawer::closeFile() {
     return 1;
 }
 
-void GraphDrawer :: writePreliminary(string functionName){
+void GraphDrawer :: writePreliminary(GRAPHTYPE graphType,string functionName){
     if(!fileStream.is_open())
         return;
+    string graphTypeString;
+    if(graphType == graph_CFG)
+        graphTypeString = "Control-flow Graph";
+    else if(graphType == graph_DT)
+        graphTypeString = "Dominator Tree";
 
-    string prelimi = string("digraph \"CFG for \'" + functionName + "\" {\n")
-    + string("label=\"CFG for \'") + functionName + "\' function\";\n\n";
+    string prelimi = string("digraph \"")+ graphTypeString + string(" for \'" + functionName + "\" {\n")
+    + string("label=\"")+ graphTypeString + string(" for \'") + functionName + "\' function\";\n\n";
     fileStream.write(prelimi.c_str(),prelimi.size());
     return;
 }
@@ -69,8 +74,8 @@ void GraphDrawer :: writePreliminary(string functionName){
 void GraphDrawer :: writeNodeStart(int blockNum,string blockName){
     if(!fileStream.is_open())
         return;
-    string nodeStart = string("Node") + to_string(blockNum) + string(" [shape=record, label=\"{") + blockName
-                       + string(":\\l");
+    string nodeStart = string("Node") + to_string(blockNum) + string(" [shape=record, label=\"{") +
+            "[" + to_string(blockNum) + "]" + blockName + string(":\\l");
     fileStream.write(nodeStart.c_str(),nodeStart.size());
 }
 

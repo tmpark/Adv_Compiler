@@ -21,7 +21,7 @@ public:
     RC destroyFile(const string &fileName);
     RC closeFile();
 
-    void writePreliminary(string functionName);
+    void writePreliminary(GRAPHTYPE graphType, string functionName);
     void writeNodeStart(int blockNum,string blockName);
     void writeCode(string codeString);
     void writeCodeForCond();

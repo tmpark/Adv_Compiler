@@ -9,10 +9,10 @@
 #define RETURN_IN_STACK -1
 #define PRE_FP_IN_STACK 0
 #define PARAM_IN_STACK 1
-#define LOCAL_IN_STACK -1 //Same sa return pointer(variable should be saved after moving)
-#define FRAMEPOINTER "$FP"
-#define STACKPOINTER "$SP"
-#define RETURNADDRESS "$RET"
+#define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
+#define FRAMEPOINTER 28
+#define STACKPOINTER 29
+#define RETURNADDRESS 31
 
 #include <array>
 #include <vector>
@@ -26,7 +26,7 @@ using namespace :: std;
 
 
 typedef enum{
-    errKind,constKind,varKind,instKind,blockKind
+    errKind,constKind,varKind,instKind,blockKind, regKind
 }Kind;
 
 typedef enum{
@@ -59,6 +59,8 @@ public:
     IROP getRelOp(){return relOp;};  //Only for relation
     void setFixLoc(int arg){fixLoc = arg;};//Only for relation
     int getFixLoc(){return fixLoc;};//Only for relation
+    void setReg(int arg){kind = regKind; regNo = arg;};
+    int getReg(){return regNo;};
 private:
     Kind kind;
     //constKind
@@ -70,6 +72,7 @@ private:
     int blockNo;
     IROP relOp ;
     int fixLoc;
+    int regNo;
 };
 
 
@@ -78,30 +81,33 @@ class Symbol
 {
 
 public:
-    Symbol(){ symType = errType; arrayCapacity = {}; symAssignedInst = {};
+    Symbol(){ symType = errType; arrayCapacity = {}; definedInstr;
         numOfParam = 0;}
     Symbol(SymType symType, int loc)
     { this->symType = symType;this->symBaseAddr = loc;
-        numOfParam = 0;};
+        numOfParam = 0;definedInstr;};
     Symbol(SymType symType, int loc, vector<int> arrayCapacity)
     { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
-        numOfParam = 0;};
+        numOfParam = 0;definedInstr;};
     Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
-    { this->symType = symType; this->symBaseAddr = loc; this->numOfParam = numOfParam;};
+    { this->symType = symType; this->symBaseAddr = loc; this->numOfParam = numOfParam;definedInstr;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
     void setBaseAddr(int arg){ symBaseAddr = arg;};
     int getBaseAddr(){return symBaseAddr;};
     void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
     int getNumOfParam(){ return numOfParam;};
+    void setDefinedInstr(int arg){definedInstr = arg;};
+    int getDefinedInstr(){return definedInstr;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
-    std::vector<int> symAssignedInst; //only for variable assigned information
+    //std::vector<int> symAssignedInst; //only for variable assigned information
 
 private:
     SymType symType; //var, array, function, procedure
     int symBaseAddr; //Location of symbol
     int numOfParam; //Only for function
+    int definedInstr;
 
 };
 
@@ -154,9 +160,11 @@ public:
     bool isCondBlock(){return blkKind == blk_cond;};
     void setTrueEdge(int edge){blkKind = blk_cond; trueEdge = edge;};
     string getBlockName(){return blockName;};
+    void setBlockName(string arg){blockName = arg;};
 
     vector<IRFormat> irCodes;
-    vector<int> forwardEdgesTo;
+    vector<int> CFGForwardEdges;
+    vector<int> DTForwardEdges;
 private:
     int blockNum;
     BlockKind blkKind;
@@ -176,7 +184,9 @@ public:
     void printIRCodes(vector<IRFormat> codes);
     void printSymbolTable();
     void printBlock();
-    void createGraph(const string &folderName);
+    void createControlFlowGraph(const string &graphFolder,const string &sourceFileName);
+    void createDominantGraph(const string &graphFolder,const string &sourceFileName);
+
     string getCodeString(IRFormat code);
 private:
 
@@ -222,13 +232,19 @@ private:
     int IRpc;
     std::vector<IRFormat> IRCodes;
     std::stack<std::string> scopeStack;
+    //std::stack<int> DTStack;
     std::unordered_map<std::string,SymTable> symTableList;
     //std::vector<BasicBlock> basicBlockList;
     std::unordered_map<std::string,unordered_map<int,BasicBlock>> functionList;
     BasicBlock currentBlock;
     unordered_map<int,int> instructionBlockPair;
-    void finalizeStartNewBlock(bool directFlowExist, string newBlockName, bool isCurrentCond);
-;
+    bool finalizeAndStartNewBlock(string currentBlockName, bool isCurrentCond, bool directFlowExist, bool dominate);
+    void updateBasicBlock(BasicBlock block);
+    void insertBasicBlock(BasicBlock block);
+    void updateBlockForDT(int dominatingBlockNum);
+    BasicBlock getBlockFromNum(int blockNum);
+
+
     int numOfBlock;
 
     void addFuncSymbol(SymType symType, std::string symbolName, unsigned long numOfParam);
@@ -237,6 +253,7 @@ private:
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
     Symbol symTableLookup(std::string symbol);
+    void symbolTableUpdate(string var,Symbol varSym);
 
 
 /*

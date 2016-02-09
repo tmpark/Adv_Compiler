@@ -88,7 +88,7 @@ void Parser::computation() {
     //Result tempJumpLoc;tempJumpLoc.setConst(0);
     //emitIntermediate(IR_bra,{tempJumpLoc});
     //Default block for jump to the main
-    //finalizeStartNewBlock(false);
+    //finalizeAndStartNewBlock(false);
 
     if(scannerSym == mainToken)
     {
@@ -114,7 +114,7 @@ void Parser::computation() {
                 {
                     Next(); //Consume end Token
                     if(scannerSym == periodToken) {
-                        finalizeStartNewBlock(false,"fuckedup", false);
+                        finalizeAndStartNewBlock("fuckedup", false,false,false);
                         scopeStack.pop(); //end of main function
                         Next(); //Comsume period Token
                     }
@@ -243,7 +243,7 @@ void Parser::funcDecl(){
                     }
 
                     //At the end of function means end of the block
-                    finalizeStartNewBlock(false, "entry", false);
+                    finalizeAndStartNewBlock("entry", false,false,false);
                     scopeStack.pop(); //Go out of function
 
                     if(scannerSym == semiToken)
@@ -415,7 +415,7 @@ void Parser::returnStatement() {
         if(isExpression(scannerSym))
         {
             x = expression();
-            Result ret;ret.setVariable(RETURNADDRESS);
+            Result ret;ret.setReg(RETURNADDRESS);
             emitIntermediate(IR_move,{x,ret});
             Result offset = getAddressInStack(RETURN_IN_STACK);
             Result x = emitIntermediate(IR_load,{offset});
@@ -436,13 +436,19 @@ void Parser::whileStatement() {
         if(isRelation(scannerSym))
         {
             //At the start of while, new Block starts
-            finalizeStartNewBlock(true,"while.cond",false);
+            if(!finalizeAndStartNewBlock("while.cond", false, true,true)) //Already New block is made(just change the name of block)
+            {
+                currentBlock.setBlockName("while.cond");
+            }
+
+            int dominatingBlockNum = currentBlock.getBlockNum();
 
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
             //After the condition, also new block starts
-            finalizeStartNewBlock(true,"whild.body",true);
+            finalizeAndStartNewBlock("while.body", true, true,true); //while block automatically dominated by cond block
+
             if(scannerSym == doToken)
             {
                 Next();
@@ -460,10 +466,12 @@ void Parser::whileStatement() {
                         //cmp <- follow.fixloc
                         //bsh <- x.fixloc
 
-                        currentBlock.forwardEdgesTo.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
+                        currentBlock.CFGForwardEdges.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
                         UnCJF(follow); //unconditional branch follow.fixloc
 
-                        finalizeStartNewBlock(false,"while.end",false);//After unconditional jump means going back without reservation
+                        finalizeAndStartNewBlock("while.end", false, false,false);//After unconditional jump means going back without reservation
+                        updateBlockForDT(dominatingBlockNum);
+
                         Fixup((unsigned long)x.getFixLoc()); //fix so that while branch here
                     }
                     else
@@ -492,8 +500,12 @@ void Parser::ifStatement() {
             x = relation();
             CondJF(x);
 
+            int dominatingBlockNum = currentBlock.getBlockNum();
             //In if statement, after the condition new block starts
-            finalizeStartNewBlock(true,"if.then",true);
+            if(!finalizeAndStartNewBlock("if.then", true, true,true)) //Automatically dominated by previous block
+            {
+                currentBlock.setBlockName("if.then");
+            }
             if(scannerSym == thenToken)
             {
                 Next();
@@ -508,9 +520,9 @@ void Parser::ifStatement() {
                         Next();
                         UnCJF(follow);
                         //Until this point, still in the then block
-
                         //The start of else is new block
-                        finalizeStartNewBlock(false,"if.else",false);//if then is performed it should avoid else
+                        finalizeAndStartNewBlock("if.else", false, false,false);//if then is performed it should avoid else
+                        updateBlockForDT(dominatingBlockNum); //else should be dominated by condition block
 
                         Fixup((unsigned long)x.getFixLoc());
                         if(isStatSequence(scannerSym))
@@ -519,11 +531,13 @@ void Parser::ifStatement() {
                         }
                         else
                             Error("ifStatement",{"statSequence"});
+                        finalizeAndStartNewBlock("if.end", false, true,false); //After all if related statements end, new block start
                     }
                     else {
-                        finalizeStartNewBlock(true,"if.end",false); //After all if related statements end, new block start
+                        finalizeAndStartNewBlock("if.end", false, true,false); //After all if related statements end, new block start
                         Fixup((unsigned long) x.getFixLoc());
                     }
+                    updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                     if(scannerSym == fiToken)
                     {
                         Next();
@@ -574,7 +588,7 @@ Result Parser::funcCall() {
                     //Because of predefined function
                     if(functionName != "OutputNum")
                     {
-                        Result SP;SP.setVariable(STACKPOINTER);
+                        Result SP;SP.setReg(STACKPOINTER);
                         emitIntermediate(IR_store,{x,SP}); //We assume that SP is automatically adjusted (So SP is adjusted and then store them)
                         i++;
                         while(scannerSym == commaToken)
@@ -640,8 +654,8 @@ Result Parser::assignment() {
                 Next();
                 if(isExpression(scannerSym))
                 {
-                     y = expression();
-                     result = emitIntermediate(IR_move,{y,x});
+                    y = expression();
+                    result = emitIntermediate(IR_move,{y,x});
                 }
                 else
                     Error("assignment",{"expression"});
@@ -827,7 +841,7 @@ Result Parser::designator() {
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
 
-            y.setVariable(FRAMEPOINTER);//Frame pointer
+            y.setReg(FRAMEPOINTER);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             y = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
             result = emitIntermediate(IR_load,{y});//load value of the index
@@ -857,16 +871,32 @@ IROP Parser::relOp() {
 
 Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
 {
+
     //Normal IR generation
     Result result;
     result.setInst(IRpc);
     IRFormat ir_line;
     ir_line.setLineNo(IRpc);
     ir_line.setIROP(irOp);
-    for(auto& x_i : x)
-        ir_line.operands.push_back(x_i);
-    IRCodes.push_back(ir_line);
+    int index = 0;
+    for(auto x_i : x) {
+        if(x_i.getKind() == varKind) //variable numbering(SSA)
+        {
+            string var = x_i.getVariable();
+            Symbol varSym = symTableLookup(var);
+            if(irOp == IR_move && index == 1) //Variable Def
+            {
+                varSym.setDefinedInstr(IRpc);
+                symbolTableUpdate(var,varSym);
+            }
 
+            var = var + "_" + to_string(varSym.getDefinedInstr());
+            x_i.setVariable(var);
+        }
+        ir_line.operands.push_back(x_i);
+        index++;
+    }
+    IRCodes.push_back(ir_line);
 
     //IR in BasicBlock generation
     //Operands in branch should point to a block
@@ -920,6 +950,10 @@ string Parser :: getCodeString(IRFormat code)
         {
             result = result + tab + "[" + to_string(operand.getBlock()) + "]";// << "\t";
         }
+        else if(operand.getKind() == regKind)
+        {
+            result = result + tab + "%" + to_string(operand.getReg());// << "\t";
+        }
         else {
             std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
         }
@@ -929,14 +963,13 @@ string Parser :: getCodeString(IRFormat code)
 }
 
 
-void Parser:: createGraph(const string &folderName)
+void Parser::createControlFlowGraph(const string &graphFolder,const string &sourceFileName)
 {
     string formatName = ".dot";
     RC rc = -1;
-
     for(auto function : functionList) {
         string functionName = function.first;
-        string fileName = folderName + functionName + formatName;
+        string fileName = graphFolder + "CFG_"+ sourceFileName+ "_" + functionName + formatName;
 
         GraphDrawer *graphDrawer = GraphDrawer::instance();
         rc = graphDrawer->createFile(fileName);
@@ -948,7 +981,7 @@ void Parser:: createGraph(const string &folderName)
             return;
         }
 
-        graphDrawer->writePreliminary(functionName);
+        graphDrawer->writePreliminary(graph_CFG,functionName);
         unordered_map<int, BasicBlock> basicBlockList = function.second;
         for (auto blockPair : basicBlockList) {
             BasicBlock block = blockPair.second;
@@ -962,7 +995,7 @@ void Parser:: createGraph(const string &folderName)
             }
             graphDrawer->writeNodeEnd();
 
-            for (auto dest : block.forwardEdgesTo) {
+            for (auto dest : block.CFGForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
                 if (block.isCondBlock()) {
                     if (block.isTrueEdge(dest)) {
@@ -978,10 +1011,47 @@ void Parser:: createGraph(const string &folderName)
         graphDrawer->writeEnd();
         graphDrawer->closeFile();
     }
-
-
 }
 
+
+void Parser::createDominantGraph(const string &graphFolder,const string &sourceFileName)
+{
+    string formatName = ".dot";
+    RC rc = -1;
+    for(auto function : functionList) {
+        string functionName = function.first;
+        string fileName = graphFolder + "DT_"+ sourceFileName+ "_" + functionName + formatName;
+
+        GraphDrawer *graphDrawer = GraphDrawer::instance();
+        rc = graphDrawer->createFile(fileName);
+        if (rc == -1)
+            return;
+        rc = graphDrawer->openFile(fileName);
+        if (rc == -1) {
+            graphDrawer->destroyFile(fileName);
+            return;
+        }
+
+        graphDrawer->writePreliminary(graph_DT,functionName);
+        unordered_map<int, BasicBlock> basicBlockList = function.second;
+        for (auto blockPair : basicBlockList) {
+            BasicBlock block = blockPair.second;
+            graphDrawer->writeNodeStart(block.getBlockNum(), block.getBlockName());
+            for (auto code : block.irCodes) {
+                string codeString = getCodeString(code);
+                graphDrawer->writeCode(codeString);
+            }
+            graphDrawer->writeNodeEnd();
+
+            for (auto dest : block.DTForwardEdges) {
+                EDGETYPE edgeType = edge_normal;
+                graphDrawer->writeEdge(block.getBlockNum(), dest, edgeType);
+            }
+        }
+        graphDrawer->writeEnd();
+        graphDrawer->closeFile();
+    }
+}
 
 void Parser::printBlock()
 {
@@ -994,7 +1064,7 @@ void Parser::printBlock()
             cout<<"Block " << block.getBlockNum() << " -------------------------------------" << endl;
             printIRCodes(block.irCodes);
             cout<<"Forward Edge to";
-            for(auto edge : block.forwardEdgesTo)
+            for(auto edge : block.CFGForwardEdges)
                 cout << " " << edge;
             cout << endl;
             cout<< "--------------------------------------------" << endl;
@@ -1032,6 +1102,10 @@ void Parser::printIRCodes(vector<IRFormat> codes)
             else if(operand.getKind() == blockKind) //Result of that instruction
             {
                 std::cout << "[" << operand.getBlock() << "]";// << "\t";
+            }
+            else if(operand.getKind() == regKind)
+            {
+                std::cout << "%" << operand.getReg();// << "\t";
             }
             else {
                 std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
@@ -1192,6 +1266,24 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
     symTableList.at(currentScope) = currentSymTable;
 }
 
+void Parser:: symbolTableUpdate(string var,Symbol varSym)
+{
+    string currentScope = scopeStack.top();
+    while(currentScope != "")
+    {
+        SymTable currentSymTable = symTableList.at(currentScope);
+        auto symIter = currentSymTable.symbolList.find(var);
+        if(symIter != currentSymTable.symbolList.end()) {
+            symIter->second = varSym;
+            symTableList.at(currentScope) = currentSymTable;
+            return;
+        }
+        currentScope = currentSymTable.getParent();
+    }
+
+    return; //There is no symbol
+}
+
 
 
 Symbol Parser:: symTableLookup(std::string symbol)
@@ -1237,7 +1329,7 @@ void Parser :: UnCJF(Result &x)
     //int destinationBlock = instructionBlockPair.at(destinationInst);
 
     //Make forward edge to the block which include instr destinationInst
-    //currentBlock.forwardEdgesTo.push_back(destinationBlock);
+    //currentBlock.CFGForwardEdges.push_back(destinationBlock);
 
     Result temp;temp.setConst(destinationInst);
     //Result temp;temp.setBlock(destinationBlock);
@@ -1261,10 +1353,13 @@ void Parser ::  Fixup(unsigned long loc)
     string currentScope = scopeStack.top();
     unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
     BasicBlock targetBlock = basicBlockList.at(targetBlockNum);
-    targetBlock.forwardEdgesTo.push_back(currentBlock.getBlockNum());
+
+    targetBlock.CFGForwardEdges.push_back(currentBlock.getBlockNum());
+    //targetBlock.DTForwardEdges.push_back(currentBlock.getBlockNum());
     operationToChange.operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
     //Assume that the last instruction would be branch
     targetBlock.irCodes.back() = operationToChange;
+
     basicBlockList.at(targetBlockNum) = targetBlock;
     functionList.at(currentScope) = basicBlockList;
 }
@@ -1289,7 +1384,7 @@ Result Parser:: getAddressInStack(int location)
 {
     Result offset;offset.setConst(location);
     Result adjust;adjust.setConst(4);
-    Result FP;FP.setVariable(FRAMEPOINTER);
+    Result FP;FP.setReg(FRAMEPOINTER);
     offset = emitIntermediate(IR_mul,{offset,adjust});
     offset = emitIntermediate(IR_adda,{offset,FP});
     return offset;
@@ -1337,24 +1432,55 @@ void Parser::predefinedFunc()
     //scopeStack.pop();
 }
 
-void Parser::finalizeStartNewBlock(bool directFlowExist, string newBlockName, bool isCurrentCond)
+
+void Parser::updateBlockForDT(int dominatingBlockNum)//dominatingBlock dominate current block
+{
+    string currentScope = scopeStack.top();
+    unordered_map<int, BasicBlock> basicBlockList = functionList.at(currentScope);
+    BasicBlock targetBlock = basicBlockList.at(dominatingBlockNum);
+
+    targetBlock.DTForwardEdges.push_back(
+            currentBlock.getBlockNum());//after end of while -> dominated by dominating block(condition)
+
+    basicBlockList.at(dominatingBlockNum) = targetBlock;
+    functionList.at(currentScope) = basicBlockList;
+}
+
+
+void Parser::insertBasicBlock(BasicBlock block)
+{
+    string currentScope = scopeStack.top();
+    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+    int blockNum = block.getBlockNum();
+    basicBlockList.insert({blockNum,currentBlock});
+    functionList.at(currentScope) = basicBlockList;
+    numOfBlock++;
+}
+
+bool Parser::finalizeAndStartNewBlock(string newBlockName, bool isCurrentCond, bool directFlowExist, bool dominate)
 {
     if(currentBlock.irCodes.size() != 0) {
-        string currentScope = scopeStack.top();
-        unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+
+        //currentBlock.setBlockName(currentBlockName);
+        //string currentScope = scopeStack.top();
+        //unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
         int currentBlockNum = currentBlock.getBlockNum();
+
+        //Current Block will be dominated by parent
+        if(dominate)
+            currentBlock.DTForwardEdges.push_back(currentBlockNum + 1);
+
         //int nextBlockNum = numOfBlock + 1;
-        if(directFlowExist) {
-            currentBlock.forwardEdgesTo.push_back(currentBlockNum + 1);
+        if(directFlowExist) { //Make forward edge to next block
+            currentBlock.CFGForwardEdges.push_back(currentBlockNum + 1);
             if(isCurrentCond)
                 currentBlock.setTrueEdge(currentBlockNum + 1);
         }
-        basicBlockList.insert({currentBlockNum,currentBlock});
-        functionList.at(currentScope) = basicBlockList;
+        insertBasicBlock(currentBlock);
         currentBlock = BasicBlock(currentBlockNum + 1,newBlockName);
-        numOfBlock++;
+        return true;
     }
-    return ;
+    return false;
 }
 /*
 void Parser::PutF1(int op, int a, int b, int c) {
