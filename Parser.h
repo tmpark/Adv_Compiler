@@ -21,16 +21,16 @@
 #include <memory>
 #include "Scanner.h"
 #include "GraphDrawer.h"
+#include "SSATrace.h"
 
 using namespace :: std;
-
 
 typedef enum{
     errKind,constKind,varKind,instKind,blockKind, regKind
 }Kind;
 
 typedef enum{
-    errType, varType, arrayType,paramType, functionType, procedureType
+    errType, varType, paramType,arrayType, functionType, procedureType
 }SymType;
 
 typedef enum{
@@ -81,33 +81,34 @@ class Symbol
 {
 
 public:
-    Symbol(){ symType = errType; arrayCapacity = {}; definedInstr;
-        numOfParam = 0;}
+    Symbol(){ symType = errType; arrayCapacity = {};
+        numOfParam = 0;};
     Symbol(SymType symType, int loc)
     { this->symType = symType;this->symBaseAddr = loc;
-        numOfParam = 0;definedInstr;};
+        numOfParam = 0;};
     Symbol(SymType symType, int loc, vector<int> arrayCapacity)
     { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
-        numOfParam = 0;definedInstr;};
+        numOfParam = 0;};
     Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
-    { this->symType = symType; this->symBaseAddr = loc; this->numOfParam = numOfParam;definedInstr;};
+    { this->symType = symType; this->symBaseAddr = loc;
+        this->numOfParam = numOfParam;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
     void setBaseAddr(int arg){ symBaseAddr = arg;};
     int getBaseAddr(){return symBaseAddr;};
     void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
     int getNumOfParam(){ return numOfParam;};
-    void setDefinedInstr(int arg){definedInstr = arg;};
-    int getDefinedInstr(){return definedInstr;};
+
+
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
+
     //std::vector<int> symAssignedInst; //only for variable assigned information
 
 private:
     SymType symType; //var, array, function, procedure
     int symBaseAddr; //Location of symbol
     int numOfParam; //Only for function
-    int definedInstr;
 
 };
 
@@ -172,7 +173,6 @@ private:
     int trueEdge;
 };
 
-
 class Parser {
 
 public:
@@ -230,9 +230,10 @@ private:
 
 
     int IRpc;
+    int depth;
     std::vector<IRFormat> IRCodes;
     std::stack<std::string> scopeStack;
-    //std::stack<int> DTStack;
+    std::unordered_map<int,stack<int>> dominatedByInfo;
     std::unordered_map<std::string,SymTable> symTableList;
     //std::vector<BasicBlock> basicBlockList;
     std::unordered_map<std::string,unordered_map<int,BasicBlock>> functionList;
@@ -243,7 +244,7 @@ private:
     void insertBasicBlock(BasicBlock block);
     void updateBlockForDT(int dominatingBlockNum);
     BasicBlock getBlockFromNum(int blockNum);
-
+    bool isDominate(int dominatingBlockNum, int dominatedBlockNum);
 
     int numOfBlock;
 
@@ -255,6 +256,8 @@ private:
     Symbol symTableLookup(std::string symbol);
     void symbolTableUpdate(string var,Symbol varSym);
 
+    //SSA
+    SSATrace ssaTrace;
 
 /*
     //Code emit related

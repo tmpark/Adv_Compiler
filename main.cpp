@@ -6,7 +6,7 @@ using namespace std;
 int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
     string graphFolder = "/home/tmpark/ClionProjects/Adv_Compiler/graph/";
-    string sourceFileName = "big";
+    string sourceFileName = "test021";
     string sourceFileFormat = ".txt";
     string graphFileName = "graph.vcg";
     string xvcg = "xvcg -font rk24";

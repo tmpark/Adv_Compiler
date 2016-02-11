@@ -15,6 +15,7 @@ Parser :: Parser()
     //FIXME
     numOfSym = 0;
     numOfBlock = 0;
+    depth = 0;
     currentBlock = BasicBlock(0,"entry");
 }
 
@@ -95,16 +96,26 @@ void Parser::computation() {
         scopeStack.push("main"); //main function scope start
         unordered_map<int,BasicBlock> emptyBasicBlockList;
         functionList.insert({"main",emptyBasicBlockList});
+        depth = 1; //main, function, procedure are considered level 1
 
         Next(); //Consume main
         while(isVarDecl(scannerSym))
             varDecl();
         predefinedFunc(); //Predefined functions
         while(isFuncDecl(scannerSym)) {
+            //At the start of block in function, the start block dominates itself
+            stack<int> dominatedBy;
+            dominatedBy.push(currentBlock.getBlockNum());
+            dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
             funcDecl();
         }
         if(scannerSym == beginToken)
         {
+            //At the start of block in main, the start block dominates itself
+            stack<int> dominatedBy;
+            dominatedBy.push(currentBlock.getBlockNum());
+            dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
+            ssaTrace = SSATrace("main",currentBlock.getBlockNum(),IRpc);
             //Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
             if(isStatSequence(scannerSym))
@@ -223,14 +234,15 @@ void Parser::funcDecl(){
                 if(isFuncBody(scannerSym))
                 {
                     scopeStack.push(symName); //Current Scope set
+                    ssaTrace = SSATrace(symName,currentBlock.getBlockNum(),IRpc);
                     //Parameters become local variable
+
                     int index = 0;//index in stack
                     for(auto param : parameters)
                     {
                         addParamSymbol(param,parameters.size(),index);//add symbol table
                         index++;
                     }
-
 
                     funcBody();
 
@@ -244,6 +256,7 @@ void Parser::funcDecl(){
 
                     //At the end of function means end of the block
                     finalizeAndStartNewBlock("entry", false,false,false);
+
                     scopeStack.pop(); //Go out of function
 
                     if(scannerSym == semiToken)
@@ -449,8 +462,10 @@ void Parser::whileStatement() {
             //After the condition, also new block starts
             finalizeAndStartNewBlock("while.body", true, true,true); //while block automatically dominated by cond block
 
+
             if(scannerSym == doToken)
             {
+                depth++;//depth increases
                 Next();
                 if(isStatSequence(scannerSym))
                 {
@@ -469,9 +484,10 @@ void Parser::whileStatement() {
                         currentBlock.CFGForwardEdges.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
                         UnCJF(follow); //unconditional branch follow.fixloc
 
-                        finalizeAndStartNewBlock("while.end", false, false,false);//After unconditional jump means going back without reservation
-                        updateBlockForDT(dominatingBlockNum);
+                        if(finalizeAndStartNewBlock("while.end", false, false,false))//After unconditional jump means going back without reservation
+                            updateBlockForDT(dominatingBlockNum);
 
+                        depth--;
                         Fixup((unsigned long)x.getFixLoc()); //fix so that while branch here
                     }
                     else
@@ -511,10 +527,10 @@ void Parser::ifStatement() {
                 Next();
                 follow.setKind(instKind);
                 follow.setFixLoc(0);
+                depth++; //in the then block depth increase
                 if(isStatSequence(scannerSym))
                 {
                     statSequence();
-
                     if(scannerSym == elseToken)
                     {
                         Next();
@@ -523,7 +539,6 @@ void Parser::ifStatement() {
                         //The start of else is new block
                         finalizeAndStartNewBlock("if.else", false, false,false);//if then is performed it should avoid else
                         updateBlockForDT(dominatingBlockNum); //else should be dominated by condition block
-
                         Fixup((unsigned long)x.getFixLoc());
                         if(isStatSequence(scannerSym))
                         {
@@ -531,13 +546,16 @@ void Parser::ifStatement() {
                         }
                         else
                             Error("ifStatement",{"statSequence"});
-                        finalizeAndStartNewBlock("if.end", false, true,false); //After all if related statements end, new block start
+                        if(finalizeAndStartNewBlock("if.end", false, true,false)) //After all if related statements end, new block start
+                            updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                     }
                     else {
-                        finalizeAndStartNewBlock("if.end", false, true,false); //After all if related statements end, new block start
+                        if(finalizeAndStartNewBlock("if.end", false, true,false))//After all if related statements end, new block start
+                            updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                         Fixup((unsigned long) x.getFixLoc());
                     }
-                    updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
+                    depth--; // end of the then and depth decreases
+                    //updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                     if(scannerSym == fiToken)
                     {
                         Next();
@@ -871,7 +889,6 @@ IROP Parser::relOp() {
 
 Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
 {
-
     //Normal IR generation
     Result result;
     result.setInst(IRpc);
@@ -879,18 +896,34 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
     ir_line.setLineNo(IRpc);
     ir_line.setIROP(irOp);
     int index = 0;
+
+    instructionBlockPair.insert({IRpc, currentBlock.getBlockNum()});//it is emitted now in current block
+
     for(auto x_i : x) {
         if(x_i.getKind() == varKind) //variable numbering(SSA)
         {
             string var = x_i.getVariable();
-            Symbol varSym = symTableLookup(var);
+            //Symbol varSym = symTableLookup(var);
+
+            ssaTrace.prepareForProcess(var,currentBlock.getBlockNum(),IRpc);
+
             if(irOp == IR_move && index == 1) //Variable Def
             {
-                varSym.setDefinedInstr(IRpc);
-                symbolTableUpdate(var,varSym);
+                ssaTrace.insertDefinedInstr();
+                var = var + "_" + to_string(IRpc);
             }
-
-            var = var + "_" + to_string(varSym.getDefinedInstr());
+            else //Variable Use
+            {
+                int instr = ssaTrace.getDefinedInstr();
+                int blockOfDefinedInst = instructionBlockPair.at(instr);
+                while(!isDominate(blockOfDefinedInst,currentBlock.getBlockNum()))
+                {
+                    ssaTrace.traceBack();
+                    instr = ssaTrace.getDefinedInstr();
+                    blockOfDefinedInst = instructionBlockPair.at(instr);
+                }
+                var = var + "_" + to_string(instr);
+            }
             x_i.setVariable(var);
         }
         ir_line.operands.push_back(x_i);
@@ -918,7 +951,6 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
     }
 
     currentBlock.irCodes.push_back(ir_line);
-    instructionBlockPair.insert({IRpc, currentBlock.getBlockNum()});
 
     IRpc++;
     return result;
@@ -1070,7 +1102,19 @@ void Parser::printBlock()
             cout<< "--------------------------------------------" << endl;
         }
     }
-
+/*
+    for(auto dominated : dominatedByInfo)
+    {
+        cout << dominated.first << " : ";
+        stack<int> dominatings = dominated.second;
+        while(!dominatings.empty())
+        {
+            cout << dominatings.top() << " ";
+            dominatings.pop();
+        }
+        cout << endl;
+    }
+*/
 }
 
 
@@ -1329,7 +1373,7 @@ void Parser :: UnCJF(Result &x)
     //int destinationBlock = instructionBlockPair.at(destinationInst);
 
     //Make forward edge to the block which include instr destinationInst
-    //currentBlock.CFGForwardEdges.push_back(destinationBlock);
+    //currentBlockNum.CFGForwardEdges.push_back(destinationBlock);
 
     Result temp;temp.setConst(destinationInst);
     //Result temp;temp.setBlock(destinationBlock);
@@ -1355,7 +1399,7 @@ void Parser ::  Fixup(unsigned long loc)
     BasicBlock targetBlock = basicBlockList.at(targetBlockNum);
 
     targetBlock.CFGForwardEdges.push_back(currentBlock.getBlockNum());
-    //targetBlock.DTForwardEdges.push_back(currentBlock.getBlockNum());
+    //targetBlock.DTForwardEdges.push_back(currentBlockNum.getBlockNum());
     operationToChange.operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
     //Assume that the last instruction would be branch
     targetBlock.irCodes.back() = operationToChange;
@@ -1444,8 +1488,18 @@ void Parser::updateBlockForDT(int dominatingBlockNum)//dominatingBlock dominate 
 
     basicBlockList.at(dominatingBlockNum) = targetBlock;
     functionList.at(currentScope) = basicBlockList;
+
+    stack<int> dominatedBy = dominatedByInfo.at(dominatingBlockNum);
+    dominatedBy.push(currentBlock.getBlockNum());
+    dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
 }
 
+
+BasicBlock Parser::getBlockFromNum(int blockNum) {
+    string currentScope = scopeStack.top();
+    unordered_map<int, BasicBlock> basicBlockList = functionList.at(currentScope);
+    return basicBlockList.at(blockNum);
+}
 
 void Parser::insertBasicBlock(BasicBlock block)
 {
@@ -1461,14 +1515,18 @@ bool Parser::finalizeAndStartNewBlock(string newBlockName, bool isCurrentCond, b
 {
     if(currentBlock.irCodes.size() != 0) {
 
-        //currentBlock.setBlockName(currentBlockName);
+        //currentBlockNum.setBlockName(currentBlockName);
         //string currentScope = scopeStack.top();
         //unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
         int currentBlockNum = currentBlock.getBlockNum();
 
         //Current Block will be dominated by parent
-        if(dominate)
+        if(dominate) {
             currentBlock.DTForwardEdges.push_back(currentBlockNum + 1);
+            stack<int> dominatedBy = dominatedByInfo.at(currentBlockNum);
+            dominatedBy.push(currentBlockNum + 1);
+            dominatedByInfo.insert({currentBlockNum + 1,dominatedBy});
+        }
 
         //int nextBlockNum = numOfBlock + 1;
         if(directFlowExist) { //Make forward edge to next block
@@ -1479,6 +1537,21 @@ bool Parser::finalizeAndStartNewBlock(string newBlockName, bool isCurrentCond, b
         insertBasicBlock(currentBlock);
         currentBlock = BasicBlock(currentBlockNum + 1,newBlockName);
         return true;
+    }
+    return false;
+}
+
+
+bool Parser:: isDominate(int dominatingBlockNum, int dominatedBlockNum)
+{
+    stack<int> dominatingBlocks = dominatedByInfo.at(dominatedBlockNum);
+    while(!dominatingBlocks.empty())
+    {
+        if(dominatingBlocks.top() == dominatingBlockNum)
+        {
+            return true;
+        }
+        dominatingBlocks.pop();
     }
     return false;
 }
