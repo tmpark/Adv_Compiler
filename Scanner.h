@@ -21,6 +21,11 @@ class Scanner {
 public:
 
     Scanner(){number = 0; id = errToken;};
+    ~Scanner(){
+        FileReader *fileReader = FileReader::instance();
+        delete fileReader;
+        _scanner = 0;
+    };
     static Scanner* instance();
     TokenType GetSym();
     int number;

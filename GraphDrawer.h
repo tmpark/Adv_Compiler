@@ -15,6 +15,9 @@ using namespace std;
 class GraphDrawer {
 public:
     GraphDrawer(){};
+    ~GraphDrawer(){
+        _graphDrawer = 0;
+    }
     static GraphDrawer* instance();
     RC createFile(const string &fileName);
     RC openFile(const std::string &fileName);

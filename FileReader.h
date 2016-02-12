@@ -19,6 +19,9 @@ class FileReader {
 public:
 
     FileReader();
+    ~FileReader(){
+        _fileReader = 0;
+    }
     static FileReader* instance();
     RC openFile(const std::string &fileName);
     RC closeFile();

@@ -21,59 +21,15 @@
 #include <memory>
 #include "Scanner.h"
 #include "GraphDrawer.h"
-#include "SSATrace.h"
+#include "SSABuilder.h"
+#include "BasicBlock.h"
 
-using namespace :: std;
+using namespace std;
 
-typedef enum{
-    errKind,constKind,varKind,instKind,blockKind, regKind
-}Kind;
 
 typedef enum{
     errType, varType, paramType,arrayType, functionType, procedureType
 }SymType;
-
-typedef enum{
-    blk_normal, blk_cond
-}BlockKind;
-
-
-
-class Result{
-public:
-    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;}
-    void setKind(Kind arg){kind = arg;};
-    Kind getKind(){return kind;};
-    //Const
-    void setConst(int arg){kind = constKind;value = arg;};
-    int getConst(){return value;};
-    //Variable
-    void setVariable(string arg1){kind = varKind; variable = arg1;};
-    string getVariable(){return variable;};
-    //Instruction
-    void setInst(int arg){kind = instKind; instNo = arg;};
-    int getInst(){return instNo;};
-    void setBlock(int arg){kind = blockKind; blockNo = arg;};
-    int getBlock(){return blockNo;};
-    void setRelOp(IROP arg){relOp = arg;}; //Only for relation
-    IROP getRelOp(){return relOp;};  //Only for relation
-    void setFixLoc(int arg){fixLoc = arg;};//Only for relation
-    int getFixLoc(){return fixLoc;};//Only for relation
-    void setReg(int arg){kind = regKind; regNo = arg;};
-    int getReg(){return regNo;};
-private:
-    Kind kind;
-    //constKind
-    int value;
-    //varKind
-    std::string variable;
-    //instKind
-    int instNo;
-    int blockNo;
-    IROP relOp ;
-    int fixLoc;
-    int regNo;
-};
 
 
 
@@ -131,52 +87,20 @@ private:
     int localVarTop;
 };
 
-class IRFormat
-{
-public:
-    IRFormat(){ instNo = -1; ir_op = IR_err;}
-
-    void setLineNo(int arg){ instNo = arg;};
-    int getLineNo(){return instNo;};
-
-    void setIROP(IROP arg){ir_op = arg;};
-    IROP getIROP(){return ir_op;};
-    std::vector<Result> operands;
-
-private:
-    int instNo;
-    IROP ir_op;
-
-};
 
 
-class BasicBlock
-{
-public:
-    BasicBlock(){blockNum = 0;blkKind = blk_normal;trueEdge = -1;};
-    BasicBlock(int blockNum){this->blockNum = blockNum;blkKind = blk_normal;trueEdge = -1;};
-    BasicBlock(int blockNum,string blockName){this->blockNum = blockNum;this->blockName = blockName;blkKind = blk_normal;trueEdge = -1;};
-    int getBlockNum(){return blockNum;};
-    bool isTrueEdge(int edge){return edge == trueEdge;};
-    bool isCondBlock(){return blkKind == blk_cond;};
-    void setTrueEdge(int edge){blkKind = blk_cond; trueEdge = edge;};
-    string getBlockName(){return blockName;};
-    void setBlockName(string arg){blockName = arg;};
-
-    vector<IRFormat> irCodes;
-    vector<int> CFGForwardEdges;
-    vector<int> DTForwardEdges;
-private:
-    int blockNum;
-    BlockKind blkKind;
-    string blockName;
-    int trueEdge;
-};
 
 class Parser {
 
 public:
     Parser();
+    ~Parser(){
+        Scanner *scanner = Scanner::instance();
+        delete scanner;
+        GraphDrawer *graphDrawer = GraphDrawer::instance();
+        delete graphDrawer;
+        _parser = 0;
+    };
     static Parser* instance();
     RC openFile(const std::string &fileName);
     RC closeFile();
@@ -220,6 +144,7 @@ private:
 
     //Intermediate Code emittion
     Result emitIntermediate(IROP irOp,std::initializer_list<Result> x);
+    void emitOrUpdatePhi(Result x);
     void CondJF(Result &x);
     void UnCJF(Result &x);
     void Fixup(unsigned long loc);
@@ -231,7 +156,7 @@ private:
 
     int IRpc;
     int depth;
-    std::vector<IRFormat> IRCodes;
+    std::vector<IRFormat> IRCodes; //index is correspond to line Num
     std::stack<std::string> scopeStack;
     std::unordered_map<int,stack<int>> dominatedByInfo;
     std::unordered_map<std::string,SymTable> symTableList;
@@ -239,7 +164,7 @@ private:
     std::unordered_map<std::string,unordered_map<int,BasicBlock>> functionList;
     BasicBlock currentBlock;
     unordered_map<int,int> instructionBlockPair;
-    bool finalizeAndStartNewBlock(string currentBlockName, bool isCurrentCond, bool directFlowExist, bool dominate);
+    bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
     void updateBasicBlock(BasicBlock block);
     void insertBasicBlock(BasicBlock block);
     void updateBlockForDT(int dominatingBlockNum);
@@ -257,7 +182,7 @@ private:
     void symbolTableUpdate(string var,Symbol varSym);
 
     //SSA
-    SSATrace ssaTrace;
+    SSABuilder ssaBuilder;
 
 /*
     //Code emit related

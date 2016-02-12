@@ -2,6 +2,7 @@
 // Created by tmpark on 2/10/16.
 //
 #include "Helper.h"
+#include "BasicBlock.h"
 #include <stack>
 
 #ifndef ADV_COMPILER_SSATRACE_H
@@ -14,14 +15,21 @@ typedef struct{
     int instNum;
 } DefinedLoc;
 
-class SSATrace {
+class SSABuilder {
 public:
-    SSATrace(string functionName, int startBlock, int startInst);
-    SSATrace(){};
+    SSABuilder(string functionName, int startBlock, int startInst);
+    SSABuilder(){};
     void insertDefinedInstr();
     int getDefinedInstr();
-    void traceBack();
     void prepareForProcess(string var,int blockNum, int instrNum);
+    void revertToOuter(int blockNum);
+    //Return true there is new phi
+    IRFormat updatePhiFunction(Result x,int operandIndex, int IRpc);
+    void createJoinBlock();
+    void destroyJoinBlock();
+    BasicBlock mergeWithJoinBlock(BasicBlock currentBlock);
+    BasicBlock getJoinBlock(){return currentJoinBlock;}
+    stack<BlockKind> currentBlockKind;
 
 private:
     //Function wide information
@@ -37,6 +45,12 @@ private:
     int currentBlockNum;
     int currentInstrNum;
     bool definitionExist;
+    Result previousDef;
+
+
+    //Phi related information
+    stack<BasicBlock> previousJoinBlockList;
+    BasicBlock currentJoinBlock;
 };
 
 

@@ -16,7 +16,7 @@ Parser :: Parser()
     numOfSym = 0;
     numOfBlock = 0;
     depth = 0;
-    currentBlock = BasicBlock(0,"entry");
+    currentBlock = BasicBlock(0,blk_entry);
 }
 
 
@@ -115,7 +115,7 @@ void Parser::computation() {
             stack<int> dominatedBy;
             dominatedBy.push(currentBlock.getBlockNum());
             dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
-            ssaTrace = SSATrace("main",currentBlock.getBlockNum(),IRpc);
+            ssaBuilder = SSABuilder("main", currentBlock.getBlockNum(), IRpc);
             //Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
             if(isStatSequence(scannerSym))
@@ -125,7 +125,7 @@ void Parser::computation() {
                 {
                     Next(); //Consume end Token
                     if(scannerSym == periodToken) {
-                        finalizeAndStartNewBlock("fuckedup", false,false,false);
+                        finalizeAndStartNewBlock(blk_entry, false,false,false);
                         scopeStack.pop(); //end of main function
                         Next(); //Comsume period Token
                     }
@@ -234,7 +234,7 @@ void Parser::funcDecl(){
                 if(isFuncBody(scannerSym))
                 {
                     scopeStack.push(symName); //Current Scope set
-                    ssaTrace = SSATrace(symName,currentBlock.getBlockNum(),IRpc);
+                    ssaBuilder = SSABuilder(symName, currentBlock.getBlockNum(), IRpc);
                     //Parameters become local variable
 
                     int index = 0;//index in stack
@@ -255,7 +255,7 @@ void Parser::funcDecl(){
                     }
 
                     //At the end of function means end of the block
-                    finalizeAndStartNewBlock("entry", false,false,false);
+                    finalizeAndStartNewBlock(blk_entry, false,false,false);
 
                     scopeStack.pop(); //Go out of function
 
@@ -449,9 +449,9 @@ void Parser::whileStatement() {
         if(isRelation(scannerSym))
         {
             //At the start of while, new Block starts
-            if(!finalizeAndStartNewBlock("while.cond", false, true,true)) //Already New block is made(just change the name of block)
+            if(!finalizeAndStartNewBlock(blk_while_cond, false, true,true)) //Already New block is made(just change the name of block)
             {
-                currentBlock.setBlockName("while.cond");
+                currentBlock.setBlockKind(blk_while_cond);
             }
 
             int dominatingBlockNum = currentBlock.getBlockNum();
@@ -460,7 +460,7 @@ void Parser::whileStatement() {
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
             //After the condition, also new block starts
-            finalizeAndStartNewBlock("while.body", true, true,true); //while block automatically dominated by cond block
+            finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
 
 
             if(scannerSym == doToken)
@@ -484,7 +484,9 @@ void Parser::whileStatement() {
                         currentBlock.CFGForwardEdges.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
                         UnCJF(follow); //unconditional branch follow.fixloc
 
-                        if(finalizeAndStartNewBlock("while.end", false, false,false))//After unconditional jump means going back without reservation
+                        //After inner block, ssa numbering should be revert to the previous state
+                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
+                        if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
 
                         depth--;
@@ -515,13 +517,17 @@ void Parser::ifStatement() {
         {
             x = relation();
             CondJF(x);
-
             int dominatingBlockNum = currentBlock.getBlockNum();
+
+            //Join Block create
+            ssaBuilder.createJoinBlock();
+
             //In if statement, after the condition new block starts
-            if(!finalizeAndStartNewBlock("if.then", true, true,true)) //Automatically dominated by previous block
+            if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
             {
-                currentBlock.setBlockName("if.then");
+                currentBlock.setBlockKind(blk_if_then);
             }
+            ssaBuilder.currentBlockKind.push(blk_if_then);
             if(scannerSym == thenToken)
             {
                 Next();
@@ -536,8 +542,14 @@ void Parser::ifStatement() {
                         Next();
                         UnCJF(follow);
                         //Until this point, still in the then block
+
+                        //After inner block, ssa numbering should be revert to the previous state
+                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
+
                         //The start of else is new block
-                        finalizeAndStartNewBlock("if.else", false, false,false);//if then is performed it should avoid else
+                        finalizeAndStartNewBlock(blk_if_else, false, false,false);//if then is performed it should avoid else
+                        ssaBuilder.currentBlockKind.pop();
+                        ssaBuilder.currentBlockKind.push(blk_if_else);
                         updateBlockForDT(dominatingBlockNum); //else should be dominated by condition block
                         Fixup((unsigned long)x.getFixLoc());
                         if(isStatSequence(scannerSym))
@@ -546,18 +558,41 @@ void Parser::ifStatement() {
                         }
                         else
                             Error("ifStatement",{"statSequence"});
-                        if(finalizeAndStartNewBlock("if.end", false, true,false)) //After all if related statements end, new block start
+                        //After inner block, ssa numbering should be revert to the previous state
+                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
+                        if(finalizeAndStartNewBlock(blk_if_end, false, true,false)) //After all if related statements end, new block start
                             updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                     }
                     else {
-                        if(finalizeAndStartNewBlock("if.end", false, true,false))//After all if related statements end, new block start
+                        //After inner block, ssa numbering should be revert to the previous state
+                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
+                        if(finalizeAndStartNewBlock(blk_if_end, false, true,false))//After all if related statements end, new block start
                             updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                         Fixup((unsigned long) x.getFixLoc());
                     }
+                    ssaBuilder.currentBlockKind.pop();
                     depth--; // end of the then and depth decreases
                     //updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
+
                     if(scannerSym == fiToken)
                     {
+                        //Fixme: copy join block code to if.end block(merge itself and inner block)
+                        BasicBlock joinBlock = ssaBuilder.getJoinBlock();
+                        ssaBuilder.destroyJoinBlock(); //go back to outer joinBlock
+
+                        for(auto code : joinBlock.irCodes)
+                        {
+                            currentBlock.irCodes.push_back(code);//contents of join block is copied
+
+                            //Phi is also kind of definition
+                            Result definedOperand = code.operands.at(0);
+                            ssaBuilder.prepareForProcess(definedOperand.getVariable(),currentBlock.getBlockNum(),definedOperand.getDefInst());
+                            ssaBuilder.insertDefinedInstr();
+
+                            //If there is outer join block propagate
+                            emitOrUpdatePhi(definedOperand);
+                        }
+
                         Next();
                         FixLink((unsigned long)follow.getFixLoc());
                     }
@@ -674,6 +709,10 @@ Result Parser::assignment() {
                 {
                     y = expression();
                     result = emitIntermediate(IR_move,{y,x});
+
+                    //code just inserted before
+                    Result x_updated = IRCodes.back().operands.at(1);//index 1 means defined instr updated x
+                    emitOrUpdatePhi(x_updated);
                 }
                 else
                     Error("assignment",{"expression"});
@@ -905,26 +944,18 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
             string var = x_i.getVariable();
             //Symbol varSym = symTableLookup(var);
 
-            ssaTrace.prepareForProcess(var,currentBlock.getBlockNum(),IRpc);
+            ssaBuilder.prepareForProcess(var, currentBlock.getBlockNum(), IRpc);
 
             if(irOp == IR_move && index == 1) //Variable Def
             {
-                ssaTrace.insertDefinedInstr();
-                var = var + "_" + to_string(IRpc);
+                ssaBuilder.insertDefinedInstr();
+                x_i.setDefInst(IRpc);
             }
             else //Variable Use
             {
-                int instr = ssaTrace.getDefinedInstr();
-                int blockOfDefinedInst = instructionBlockPair.at(instr);
-                while(!isDominate(blockOfDefinedInst,currentBlock.getBlockNum()))
-                {
-                    ssaTrace.traceBack();
-                    instr = ssaTrace.getDefinedInstr();
-                    blockOfDefinedInst = instructionBlockPair.at(instr);
-                }
-                var = var + "_" + to_string(instr);
+                int instr = ssaBuilder.getDefinedInstr();
+                x_i.setDefInst(instr);
             }
-            x_i.setVariable(var);
         }
         ir_line.operands.push_back(x_i);
         index++;
@@ -972,7 +1003,7 @@ string Parser :: getCodeString(IRFormat code)
         }
         else if (operand.getKind() == varKind)
         {
-            result = result + tab + operand.getVariable();// << "\t";
+            result = result + tab + operand.getVariable()+"_"+to_string(operand.getDefInst());// << "\t";
         }
         else if(operand.getKind() == instKind) //Result of that instruction
         {
@@ -1137,7 +1168,7 @@ void Parser::printIRCodes(vector<IRFormat> codes)
             }
             else if (operand.getKind() == varKind)
             {
-                std::cout << operand.getVariable();// << "\t";
+                std::cout << operand.getVariable() << "_" << operand.getDefInst();// << "\t";
             }
             else if(operand.getKind() == instKind) //Result of that instruction
             {
@@ -1511,7 +1542,7 @@ void Parser::insertBasicBlock(BasicBlock block)
     numOfBlock++;
 }
 
-bool Parser::finalizeAndStartNewBlock(string newBlockName, bool isCurrentCond, bool directFlowExist, bool dominate)
+bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate)
 {
     if(currentBlock.irCodes.size() != 0) {
 
@@ -1535,7 +1566,7 @@ bool Parser::finalizeAndStartNewBlock(string newBlockName, bool isCurrentCond, b
                 currentBlock.setTrueEdge(currentBlockNum + 1);
         }
         insertBasicBlock(currentBlock);
-        currentBlock = BasicBlock(currentBlockNum + 1,newBlockName);
+        currentBlock = BasicBlock(currentBlockNum + 1,newBlockKind);
         return true;
     }
     return false;
@@ -1555,6 +1586,34 @@ bool Parser:: isDominate(int dominatingBlockNum, int dominatedBlockNum)
     }
     return false;
 }
+
+void Parser:: emitOrUpdatePhi(Result x){                    //If x is variable and the current block is condition update phi function
+    if(x.getKind() == varKind)//Variable Definition
+    {
+        if(ssaBuilder.currentBlockKind.empty())//Currently not in the then, else block
+            return;
+
+        if(ssaBuilder.currentBlockKind.top() == blk_if_then)//left operand of phi should be modified
+        {
+            //Operand index 1 should be changed
+            IRFormat irCode = ssaBuilder.updatePhiFunction(x, 1, IRpc);
+            if(irCode.getIROP() != IR_err) {
+                IRCodes.push_back(irCode);
+                IRpc++;
+            }
+        }
+        else if(ssaBuilder.currentBlockKind.top() == blk_if_else)//right opernad of phi should be modified
+        {
+            //Operand index 2 should be changed
+            IRFormat irCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
+            if(irCode.getIROP() != IR_err) {
+                IRCodes.push_back(irCode);
+                IRpc++;
+            }
+        }
+    }
+}
+
 /*
 void Parser::PutF1(int op, int a, int b, int c) {
     buf.at(pc) = op << 26 |

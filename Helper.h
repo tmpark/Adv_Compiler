@@ -8,12 +8,16 @@
 #define SOURCE_CODE_PRINT false
 #define TraceScan false
 #define NO_PARSE false
-typedef int RC;
 
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <sstream>
+#include <iostream>
+
+using namespace std;
+
+typedef int RC;
 
 typedef enum {
     errToken = 0,
@@ -79,6 +83,83 @@ typedef enum{
     graph_CFG, graph_DT
 }GRAPHTYPE;
 
+typedef enum{
+    errKind,constKind,varKind,instKind,blockKind, regKind
+}Kind;
+
+class Result{
+public:
+    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;defInst = -1;}
+    void setKind(Kind arg){kind = arg;};
+    Kind getKind(){return kind;};
+    //Const
+    void setConst(int arg){kind = constKind;value = arg;};
+    int getConst(){return value;};
+    //Variable
+    void setVariable(string arg1){kind = varKind; variable = arg1;};
+    string getVariable(){return variable;};
+    //Instruction
+    void setInst(int arg){kind = instKind; instNo = arg;};
+    int getInst(){return instNo;};
+    void setBlock(int arg){kind = blockKind; blockNo = arg;};
+    int getBlock(){return blockNo;};
+    void setRelOp(IROP arg){relOp = arg;}; //Only for relation
+    IROP getRelOp(){return relOp;};  //Only for relation
+    void setFixLoc(int arg){fixLoc = arg;};//Only for relation
+    int getFixLoc(){return fixLoc;};//Only for relation
+    void setReg(int arg){kind = regKind; regNo = arg;};
+    int getReg(){return regNo;};
+    void setDefInst(int arg){defInst = arg;};
+    int getDefInst(){return defInst;};
+
+private:
+    Kind kind;
+    //constKind
+    int value;
+    //varKind
+    std::string variable;
+    int defInst;
+    //instKind
+    int instNo;
+    int blockNo;
+    IROP relOp ;
+    int fixLoc;
+    int regNo;
+};
+
+
+class IRFormat
+{
+public:
+    IRFormat(){ instNo = -1; ir_op = IR_err;}
+    IRFormat(int instNo, IROP ir_op, Result operand0)
+    {
+        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};
+    };
+    IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1)
+    {
+      this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};
+    };
+    IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
+    {
+        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};
+    };
+
+    void setLineNo(int arg){ instNo = arg;};
+    int getLineNo(){return instNo;};
+
+    void setIROP(IROP arg){ir_op = arg;};
+    IROP getIROP(){return ir_op;};
+    std::vector<Result> operands;
+
+private:
+    int instNo;
+    IROP ir_op;
+
+};
+
+
+
 TokenType getTypeOfOneToken(char c);
 void printToken(TokenType tokenTypeReturned,std::string idConstructed);
 
@@ -106,7 +187,6 @@ IROP getIRopFromToken(TokenType scannerSym);
 IROP negateCondition(IROP ir_op);
 std::vector<std::string> splitString(std::string stringToSplit);
 bool isBranchCond(IROP op);
-
 
 
 #endif //ADV_COMPILER_HELPER_H
