@@ -22,8 +22,16 @@ int main() {
     scanner->closeFile();
 
 #else
-    for(int i = 1 ; i < 32 ; i++)
+    //Issue
+    //Test4 not matched number of parameters, wrong array indexing -> intentional error
+    //Test13 function is changed to procedure (Michael's mistake)
+    //Test15 var name should be allowed
+
+    for(int i = 1 ; i < 34 ; i++)
     {
+        if(i == 4)
+            continue;
+
         string testNum = to_string(i);
         size_t numOfChar = testNum.size();
         if(numOfChar == 1)
@@ -34,13 +42,20 @@ int main() {
         {
             testNum = "0" + testNum;
         }
+
         string sourceFileName = "test" + testNum;
+
+        if(i == 32)
+            sourceFileName = "cell";
+        else if(i == 33)
+            sourceFileName = "factorial";
+
         Parser *parser = Parser :: instance();
         rc = parser->openFile(folder + sourceFileName + sourceFileFormat);
         if(rc == -1)
             return 0;
         parser->startParse();
-        parser->printBlock();
+        //parser->printBlock();
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/",sourceFileName);
         parser->createDominantGraph(graphFolder+sourceFileName + "/",sourceFileName);
         //string visualizeGraph = xvcg + " " + folder + graphFileName;

@@ -214,7 +214,7 @@ void Parser::funcDecl(){
     if(scannerSym == funcToken || scannerSym == procToken)
     {
         SymType symType;
-        if(scannerSym == funcToken)symType = functionType; else symType = procedureType;
+        if(scannerSym == funcToken)symType = sym_func; else symType = sym_proc;
 
         Next();
         if(scannerSym == identToken)
@@ -246,7 +246,7 @@ void Parser::funcDecl(){
 
                     funcBody();
 
-                    if(symType == procedureType) //Procedure type does not have explicit return
+                    if(symType == sym_proc) //Procedure type does not have explicit return
                     {
                         //Return code emission
                         Result offset = getAddressInStack(RETURN_IN_STACK);
@@ -325,12 +325,12 @@ Symbol Parser::typeDecl() {
     Symbol result;
     if(scannerSym == varToken)
     {
-        result.setSymType(varType); //Var type
+        result.setSymType(sym_var); //Var type
         Next(); //Consume var Token
     }
     else if(scannerSym == arrToken)
     {
-        result.setSymType(arrayType); // Array type
+        result.setSymType(sym_array); // Array type
         Next(); //Consume var Token
 
         if(scannerSym == openbracketToken)
@@ -455,12 +455,15 @@ void Parser::whileStatement() {
             }
 
             int dominatingBlockNum = currentBlock.getBlockNum();
+            int conditionBlockNum = dominatingBlockNum;
 
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
+            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.irCodes);
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
+            ssaBuilder.currentBlockKind.push(blk_while_body);
 
 
             if(scannerSym == doToken)
@@ -489,8 +492,26 @@ void Parser::whileStatement() {
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
 
+                        vector<IRFormat> phiCodes = ssaBuilder.getPhiCodes();
+                        vector<IRFormat> irCodes = phiCodes;
+                        vector<IRFormat> joinBlockCodes = ssaBuilder.getJoinBlockCodes();
+                        irCodes.insert(irCodes.end(),std::make_move_iterator(joinBlockCodes.begin()),std::make_move_iterator(joinBlockCodes.end()));
+                        updateBasicBlockCodes(conditionBlockNum,irCodes);
+                        ssaBuilder.currentBlockKind.pop();
+
                         depth--;
                         Fixup((unsigned long)x.getFixLoc()); //fix so that while branch here
+                        ssaBuilder.endJoinBlock();
+
+                        for(auto code : phiCodes)
+                        {
+                            //Phi is also kind of definition
+                            Result definedOperand = code.operands.at(0);
+                            ssaBuilder.prepareForProcess(definedOperand.getVariable(),currentBlock.getBlockNum(),definedOperand.getDefInst());
+                            ssaBuilder.insertDefinedInstr();
+                            //If there is outer join block propagate
+                            emitOrUpdatePhi(definedOperand);
+                        }
                     }
                     else
                         Error("whileStatement",{getTokenStr(odToken)});
@@ -520,7 +541,7 @@ void Parser::ifStatement() {
             int dominatingBlockNum = currentBlock.getBlockNum();
 
             //Join Block create
-            ssaBuilder.createJoinBlock();
+            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),vector<IRFormat>());
 
             //In if statement, after the condition new block starts
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
@@ -576,11 +597,11 @@ void Parser::ifStatement() {
 
                     if(scannerSym == fiToken)
                     {
-                        //Fixme: copy join block code to if.end block(merge itself and inner block)
-                        BasicBlock joinBlock = ssaBuilder.getJoinBlock();
-                        ssaBuilder.destroyJoinBlock(); //go back to outer joinBlock
 
-                        for(auto code : joinBlock.irCodes)
+                        vector<IRFormat> phiCodes = ssaBuilder.getPhiCodes();
+                        ssaBuilder.endJoinBlock(); //go back to outer joinBlock
+
+                        for(auto code : phiCodes)
                         {
                             currentBlock.irCodes.push_back(code);//contents of join block is copied
 
@@ -626,7 +647,7 @@ Result Parser::funcCall() {
         if(scannerSym == identToken)
         {
             functionName = scanner->id;
-            Symbol functionSym = symTableLookup(functionName);
+            Symbol functionSym = symTableLookup(functionName, sym_func);
             numOfParam = functionSym.getNumOfParam(); //number of function parameter
             locationOfFunc = functionSym.getBaseAddr();  //function location(instruction number)
             Next();
@@ -709,7 +730,6 @@ Result Parser::assignment() {
                 {
                     y = expression();
                     result = emitIntermediate(IR_move,{y,x});
-
                     //code just inserted before
                     Result x_updated = IRCodes.back().operands.at(1);//index 1 means defined instr updated x
                     emitOrUpdatePhi(x_updated);
@@ -854,7 +874,7 @@ Result Parser::designator() {
 
     if(scannerSym == identToken)
     {
-        Symbol symInfo = symTableLookup(scanner->id);
+        Symbol symInfo = symTableLookup(scanner->id, sym_var);
         x.setVariable(scanner->id);
 
         Next();
@@ -890,10 +910,10 @@ Result Parser::designator() {
                 Error("designator",{"expression"});
             i++;
         }
-        if(symInfo.getSymType() == arrayType)
+        if(symInfo.getSymType() == sym_array)
         {
             //x is array. So we have to provide address of x and index
-            Symbol xSymbol = symTableLookup(x.getVariable());
+            Symbol xSymbol = symTableLookup(x.getVariable(), sym_array);
             x.setConst(xSymbol.getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
@@ -1201,24 +1221,24 @@ void Parser::printSymbolTable()
     {
         cout << symTableIter.first << ":" << endl;
         SymTable symtable = symTableIter.second;
-        for(auto symIter : symtable.symbolList)
+        for(auto symIter : symtable.varSymbolList)
         {
             Symbol sym = symIter.second;
             SymType symType = sym.getSymType();
 
-            if(symType == varType)
+            if(symType == sym_var)
             {
                 cout << "\t" << "var";
                 cout << " " << symIter.first;
                 cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
-            else if(symType == paramType)
+            else if(symType == sym_param)
             {
                 cout << "\t" << "param";
                 cout << " " << symIter.first;
                 cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
-            else if(symType == arrayType)
+            else if(symType == sym_array)
             {
                 cout << "\t" << "array ";
                 for(auto cap : sym.arrayCapacity)
@@ -1229,14 +1249,14 @@ void Parser::printSymbolTable()
                 cout << "\t" << "Base Address: " << sym.getBaseAddr();
             }
 
-            else if(symType == functionType)
+            else if(symType == sym_func)
             {
                 cout << "\t" << "function";
                 cout << "\t" << symIter.first;
                 cout << "\t" << "Base Address: " << sym.getBaseAddr();
                 cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
             }
-            else if(symType == procedureType)
+            else if(symType == sym_proc)
             {
                 cout << "\t" << "procedure";
                 cout << "\t" << symIter.first;
@@ -1264,8 +1284,8 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
         return;
     }
     SymTable parentSymTable = parentSymTableIter->second;
-    auto symListIter = parentSymTable.symbolList.find(symbolName);
-    if(symListIter != parentSymTable.symbolList.end())
+    auto symListIter = parentSymTable.funcSymbolList.find(symbolName);
+    if(symListIter != parentSymTable.funcSymbolList.end())
     {
         std::cerr << "Same symbol already exist in symbol table" << std::endl;
         return;
@@ -1282,7 +1302,7 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
     //Make symbol
     Symbol functionSymbol(symType,IRpc,(int)numOfParam);
     //insert this symbol to symbol table.
-    parentSymTable.symbolList.insert({symbolName,functionSymbol});
+    parentSymTable.funcSymbolList.insert({symbolName, functionSymbol});
     symTableList.at(currentScope) = parentSymTable;
 
     //Make its own symbol table
@@ -1313,7 +1333,7 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
     Symbol newSymbol(symType,localVarTop,arrayCapacity);
 
     //Update symtable
-    currentSymTable.symbolList.insert({symbol,newSymbol});
+    currentSymTable.varSymbolList.insert({symbol, newSymbol});
 
     currentSymTable.setLocalVarTop(localVarTop);
 
@@ -1332,10 +1352,10 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
     }
     SymTable currentSymTable = symTableIter->second;
     //Make symbol
-    Symbol newSymbol(paramType,PARAM_IN_STACK + ((int)numOfParam -1) - index);
+    Symbol newSymbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index);
 
     //Update symtable
-    currentSymTable.symbolList.insert({symbol,newSymbol});
+    currentSymTable.varSymbolList.insert({symbol, newSymbol});
 
     //update symtable list
     symTableList.at(currentScope) = currentSymTable;
@@ -1347,8 +1367,8 @@ void Parser:: symbolTableUpdate(string var,Symbol varSym)
     while(currentScope != "")
     {
         SymTable currentSymTable = symTableList.at(currentScope);
-        auto symIter = currentSymTable.symbolList.find(var);
-        if(symIter != currentSymTable.symbolList.end()) {
+        auto symIter = currentSymTable.varSymbolList.find(var);
+        if(symIter != currentSymTable.varSymbolList.end()) {
             symIter->second = varSym;
             symTableList.at(currentScope) = currentSymTable;
             return;
@@ -1361,7 +1381,7 @@ void Parser:: symbolTableUpdate(string var,Symbol varSym)
 
 
 
-Symbol Parser:: symTableLookup(std::string symbol)
+Symbol Parser:: symTableLookup(std::string symbol,SymType symType)
 {
     Symbol nullInfo;
     string currentScope = scopeStack.top();
@@ -1375,9 +1395,18 @@ Symbol Parser:: symTableLookup(std::string symbol)
             return nullInfo;
         }
 
+
         SymTable currentSymTable = currentSymTableIter->second;
-        auto symIter = currentSymTable.symbolList.find(symbol);
-        if(symIter != currentSymTable.symbolList.end())
+        unordered_map<string,Symbol> symbolList;
+
+        //Distinguish varsym and funcsym
+        if(symType == sym_var || symType == sym_param || symType == sym_array)
+            symbolList = currentSymTable.varSymbolList;
+        else if (symType == sym_func || symType == sym_proc)
+            symbolList = currentSymTable.funcSymbolList;
+
+        auto symIter = symbolList.find(symbol);
+        if(symIter != symbolList.end())
             return symIter->second;
 
         currentScope = currentSymTable.getParent();
@@ -1468,7 +1497,7 @@ Result Parser:: getAddressInStack(int location)
 void Parser::predefinedFunc()
 {
     //predefined function
-    SymType symType = functionType;
+    SymType symType = sym_func;
     //InputNum
     addFuncSymbol(symType,"InputNum",0);
     //scopeStack.push("InputNum"); //Current Scope set
@@ -1482,7 +1511,7 @@ void Parser::predefinedFunc()
     //scopeStack.pop(); //Current Scope set
 
     //predefined procedure
-    symType = procedureType;
+    symType = sym_proc;
 
     //OutputNum
     addFuncSymbol(symType,"OutputNum",1);
@@ -1540,6 +1569,16 @@ void Parser::insertBasicBlock(BasicBlock block)
     basicBlockList.insert({blockNum,currentBlock});
     functionList.at(currentScope) = basicBlockList;
     numOfBlock++;
+}
+
+void Parser::updateBasicBlockCodes(int modifiedBlockNum, vector<IRFormat> codes)
+{
+    string currentScope = scopeStack.top();
+    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+    BasicBlock modifiedBlock = basicBlockList.at(modifiedBlockNum);
+    modifiedBlock.irCodes = codes;
+    basicBlockList.at(modifiedBlockNum) = modifiedBlock;
+    functionList.at(currentScope) = basicBlockList;
 }
 
 bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate)
@@ -1610,6 +1649,29 @@ void Parser:: emitOrUpdatePhi(Result x){                    //If x is variable a
                 IRCodes.push_back(irCode);
                 IRpc++;
             }
+        }
+        else if(ssaBuilder.currentBlockKind.top() == blk_while_body)
+        {
+            IRFormat phiCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
+            if(phiCode.getIROP() != IR_err) { //there is new phi
+                //before assignment variables in blk_while_body and blk_while_cond are now defined in phi
+                for(auto& irCode : currentBlock.irCodes)
+                {
+                    if(irCode.getLineNo() == IRpc - 1)//Skip for just assigned value
+                        continue;
+                    for(auto& operand : irCode.operands)
+                    {
+                        if(operand.getKind() == varKind)
+                        {
+                            if(operand.getVariable() == x.getVariable())
+                                operand.setDefInst(phiCode.getLineNo());
+                        }
+                    }
+                }
+                IRCodes.push_back(phiCode);
+                IRpc++;
+            }
+
         }
     }
 }

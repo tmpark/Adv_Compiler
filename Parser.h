@@ -28,7 +28,7 @@ using namespace std;
 
 
 typedef enum{
-    errType, varType, paramType,arrayType, functionType, procedureType
+    sym_err, sym_var, sym_param, sym_array, sym_func, sym_proc
 }SymType;
 
 
@@ -37,7 +37,7 @@ class Symbol
 {
 
 public:
-    Symbol(){ symType = errType; arrayCapacity = {};
+    Symbol(){ symType = sym_err; arrayCapacity = {};
         numOfParam = 0;};
     Symbol(SymType symType, int loc)
     { this->symType = symType;this->symBaseAddr = loc;
@@ -79,7 +79,8 @@ public:
         localVarTop = LOCAL_IN_STACK;};
     void setParent(string arg){this->parentSymTableName = arg;};
     string getParent(){return parentSymTableName;};
-    unordered_map<string,Symbol> symbolList;
+    unordered_map<string,Symbol> varSymbolList;
+    unordered_map<string,Symbol> funcSymbolList;
     int getLocalVarTop(){return localVarTop;};
     void setLocalVarTop(int arg){ localVarTop = arg;};
 private:
@@ -165,7 +166,7 @@ private:
     BasicBlock currentBlock;
     unordered_map<int,int> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
-    void updateBasicBlock(BasicBlock block);
+    void updateBasicBlockCodes(int modifiedBlockNum, vector<IRFormat> codes);
     void insertBasicBlock(BasicBlock block);
     void updateBlockForDT(int dominatingBlockNum);
     BasicBlock getBlockFromNum(int blockNum);
@@ -178,7 +179,7 @@ private:
     void addParamSymbol(std::string symbol, size_t numOfParam, int index);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
-    Symbol symTableLookup(std::string symbol);
+    Symbol symTableLookup(std::string symbol,SymType symType);
     void symbolTableUpdate(string var,Symbol varSym);
 
     //SSA

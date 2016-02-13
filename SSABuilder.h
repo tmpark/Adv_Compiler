@@ -25,17 +25,22 @@ public:
     void revertToOuter(int blockNum);
     //Return true there is new phi
     IRFormat updatePhiFunction(Result x,int operandIndex, int IRpc);
-    void createJoinBlock();
-    void destroyJoinBlock();
-    BasicBlock mergeWithJoinBlock(BasicBlock currentBlock);
-    BasicBlock getJoinBlock(){return currentJoinBlock;}
+
+    void startJoinBlock(BlockKind blockKind, vector<IRFormat> codes);
+    void endJoinBlock();
+    //BasicBlock getJoinBlock(){return currentJoinBlock;}
+    vector<IRFormat> getJoinBlockCodes(){return currentJoinBlockCodes;};
+    vector<IRFormat> getPhiCodes(){return currentPhiCodes;};
     stack<BlockKind> currentBlockKind;
+    vector<IRFormat> currentPhiCodes;
+    vector<IRFormat> currentJoinBlockCodes;
 
 private:
     //Function wide information
     string functionName;
     int startBlock;
     int startInst;
+    BlockKind currentJoinBlockKind;
     unordered_map<string,stack<DefinedLoc>> definedLocTable;
 
 
@@ -49,8 +54,10 @@ private:
 
 
     //Phi related information
-    stack<BasicBlock> previousJoinBlockList;
-    BasicBlock currentJoinBlock;
+    stack<vector<IRFormat>> previousPhiCodes;
+    stack<vector<IRFormat>> previousJoinBlockCodes;
+    stack<BlockKind> previousJoinBlockKind;
+    //BasicBlock currentJoinBlock;
 };
 
 
