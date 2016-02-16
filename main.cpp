@@ -27,6 +27,10 @@ int main() {
     //Test13 function is changed to procedure (Michael's mistake)
     //Test15 var name should be allowed
 
+    //Test17,18,19->Copy Propagation Test
+    //Test26 -> CSE Test
+
+    //1~34
     for(int i = 1 ; i < 34 ; i++)
     {
         if(i == 4)

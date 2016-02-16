@@ -42,6 +42,7 @@ public:
     BlockKind getBlockKind(){return blockKind;};
 
     vector<IRFormat> irCodes;
+    vector<IRFormat> phiCodes;
     vector<int> CFGForwardEdges;
     vector<int> DTForwardEdges;
 private:

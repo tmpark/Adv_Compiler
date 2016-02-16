@@ -131,18 +131,18 @@ private:
 class IRFormat
 {
 public:
-    IRFormat(){ instNo = -1; ir_op = IR_err;}
+    IRFormat(){ instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;}
     IRFormat(int instNo, IROP ir_op, Result operand0)
     {
-        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};
+        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;
     };
     IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1)
     {
-      this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};
+      this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;
     };
     IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
     {
-        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};
+        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;
     };
 
     void setLineNo(int arg){ instNo = arg;};
@@ -150,11 +150,15 @@ public:
 
     void setIROP(IROP arg){ir_op = arg;};
     IROP getIROP(){return ir_op;};
+
+    IRFormat* getPreviousSameOpInst(){return previousSameOpInst;};
+    void setPreviousSameOpInst(IRFormat* arg){previousSameOpInst = arg;};
     std::vector<Result> operands;
 
 private:
     int instNo;
     IROP ir_op;
+    IRFormat *previousSameOpInst;
 
 };
 
@@ -187,6 +191,6 @@ IROP getIRopFromToken(TokenType scannerSym);
 IROP negateCondition(IROP ir_op);
 std::vector<std::string> splitString(std::string stringToSplit);
 bool isBranchCond(IROP op);
-
+bool isSameOperand(Result x, Result y);
 
 #endif //ADV_COMPILER_HELPER_H

@@ -119,21 +119,7 @@ IRFormat SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
     }
     //There is no Phi function
 
-    //For while block variables under phi should be changed to indicate phi line
-    if(currentJoinBlockKind == blk_while_cond)
-    {
-        for(auto& irCode : currentJoinBlockCodes)
-        {
-            for(auto& operand : irCode.operands)
-            {
-                if(operand.getKind() == varKind)
-                {
-                    if(operand.getVariable() == x.getVariable())
-                        operand.setDefInst(IRpc);//IRpc would be future inst num of phi
-                }
-            }
-        }
-    }
+
 
     //make phi for the first time
     Result operand[3];
@@ -149,22 +135,22 @@ IRFormat SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
     return irCode;
 }
 
-void SSABuilder::startJoinBlock(BlockKind blockKind, vector<IRFormat> codes)
+void SSABuilder::startJoinBlock(BlockKind blockKind,int joinBlockNum)
 {
-    previousJoinBlockCodes.push(currentJoinBlockCodes);
     previousPhiCodes.push(currentPhiCodes);
     previousJoinBlockKind.push(currentJoinBlockKind);
-    currentJoinBlockCodes = codes;
+    previousJoinBlockNum.push(currentJoinBlockNum);
     currentPhiCodes = vector<IRFormat>();
     currentJoinBlockKind = blockKind;
+    currentJoinBlockNum = joinBlockNum;
 }
 void SSABuilder::endJoinBlock()
 {
-    currentJoinBlockCodes = previousJoinBlockCodes.top();
     currentPhiCodes = previousPhiCodes.top();
     currentJoinBlockKind = previousJoinBlockKind.top();
-    previousJoinBlockCodes.pop();
+    currentJoinBlockNum = previousJoinBlockNum.top();
     previousPhiCodes.pop();
     previousJoinBlockKind.pop();
+    previousJoinBlockNum.pop();
 }
 

@@ -25,15 +25,15 @@ public:
     void revertToOuter(int blockNum);
     //Return true there is new phi
     IRFormat updatePhiFunction(Result x,int operandIndex, int IRpc);
-
-    void startJoinBlock(BlockKind blockKind, vector<IRFormat> codes);
+    void startJoinBlock(BlockKind blockKind,int joinBlockNum);
     void endJoinBlock();
     //BasicBlock getJoinBlock(){return currentJoinBlock;}
-    vector<IRFormat> getJoinBlockCodes(){return currentJoinBlockCodes;};
+    int getCurrentJoinBlockNum(){return currentJoinBlockNum;};
+    int getPreviousDefinedInst(){return previousDef.getDefInst();};
+
     vector<IRFormat> getPhiCodes(){return currentPhiCodes;};
     stack<BlockKind> currentBlockKind;
     vector<IRFormat> currentPhiCodes;
-    vector<IRFormat> currentJoinBlockCodes;
 
 private:
     //Function wide information
@@ -49,14 +49,15 @@ private:
     stack<DefinedLoc> definedLocList;
     int currentBlockNum;
     int currentInstrNum;
+    int currentJoinBlockNum;
     bool definitionExist;
     Result previousDef;
 
 
     //Phi related information
     stack<vector<IRFormat>> previousPhiCodes;
-    stack<vector<IRFormat>> previousJoinBlockCodes;
     stack<BlockKind> previousJoinBlockKind;
+    stack<int> previousJoinBlockNum;
     //BasicBlock currentJoinBlock;
 };
 

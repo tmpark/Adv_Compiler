@@ -389,3 +389,34 @@ bool isBranchCond(IROP op)
             (op == IR_bge) ||
             (op == IR_bgt);
 }
+\
+bool isSameOperand(Result x, Result y){
+    Kind xKind = x.getKind();
+    Kind yKind = y.getKind();
+    Kind kind = xKind;
+    if(xKind == yKind)
+    {
+        switch(kind){
+            case constKind :
+                return x.getConst() == y.getConst();
+            break;
+            case varKind :
+                return (x.getVariable() == y.getVariable()) && (x.getDefInst() == y.getDefInst());
+                break;
+            case instKind :
+                return x.getInst() == y.getInst();
+                break;
+            case regKind :
+                return x.getReg() == y.getReg();
+                break;
+            case blockKind :
+                return x.getBlock() == y.getBlock();
+                break;
+            default:
+                cerr << "No distinguisable kind of operand" << endl;
+        }
+    }
+    else
+        false;
+
+}

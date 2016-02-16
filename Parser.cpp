@@ -460,9 +460,11 @@ void Parser::whileStatement() {
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
-            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.irCodes);
+            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
+
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
+
             ssaBuilder.currentBlockKind.push(blk_while_body);
 
 
@@ -493,10 +495,9 @@ void Parser::whileStatement() {
                             updateBlockForDT(dominatingBlockNum);
 
                         vector<IRFormat> phiCodes = ssaBuilder.getPhiCodes();
-                        vector<IRFormat> irCodes = phiCodes;
-                        vector<IRFormat> joinBlockCodes = ssaBuilder.getJoinBlockCodes();
-                        irCodes.insert(irCodes.end(),std::make_move_iterator(joinBlockCodes.begin()),std::make_move_iterator(joinBlockCodes.end()));
-                        updateBasicBlockCodes(conditionBlockNum,irCodes);
+                        //vector<IRFormat> irCodes = phiCodes;
+                        //irCodes.insert(irCodes.end(),std::make_move_iterator(joinBlockCodes.begin()),std::make_move_iterator(joinBlockCodes.end()));
+                        updatePhiInBB(conditionBlockNum, phiCodes);
                         ssaBuilder.currentBlockKind.pop();
 
                         depth--;
@@ -510,7 +511,7 @@ void Parser::whileStatement() {
                             ssaBuilder.prepareForProcess(definedOperand.getVariable(),currentBlock.getBlockNum(),definedOperand.getDefInst());
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
-                            emitOrUpdatePhi(definedOperand);
+                            emitOrUpdatePhi(definedOperand,code.getLineNo());
                         }
                     }
                     else
@@ -541,7 +542,7 @@ void Parser::ifStatement() {
             int dominatingBlockNum = currentBlock.getBlockNum();
 
             //Join Block create
-            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),vector<IRFormat>());
+            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
 
             //In if statement, after the condition new block starts
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
@@ -603,7 +604,7 @@ void Parser::ifStatement() {
 
                         for(auto code : phiCodes)
                         {
-                            currentBlock.irCodes.push_back(code);//contents of join block is copied
+                            currentBlock.phiCodes.push_back(code);//contents of join block is copied
 
                             //Phi is also kind of definition
                             Result definedOperand = code.operands.at(0);
@@ -611,7 +612,7 @@ void Parser::ifStatement() {
                             ssaBuilder.insertDefinedInstr();
 
                             //If there is outer join block propagate
-                            emitOrUpdatePhi(definedOperand);
+                            emitOrUpdatePhi(definedOperand,code.getLineNo());
                         }
 
                         Next();
@@ -730,9 +731,10 @@ Result Parser::assignment() {
                 {
                     y = expression();
                     result = emitIntermediate(IR_move,{y,x});
+
                     //code just inserted before
                     Result x_updated = IRCodes.back().operands.at(1);//index 1 means defined instr updated x
-                    emitOrUpdatePhi(x_updated);
+                    emitOrUpdatePhi(x_updated,IRCodes.back().getLineNo());
                 }
                 else
                     Error("assignment",{"expression"});
@@ -788,7 +790,18 @@ Result Parser::expression() {
             if(isTerm(scannerSym))
             {
                 y = term();
-                result = emitIntermediate(irOp,{x,y});
+
+                //Find the same expression in the list
+                //Result existingCommonSub = cseTracker.findExistingCommonSub(irOp, x, y);
+                //if(existingCommonSub.getKind() == errKind) //There is no common sub
+                //{
+                    result = emitIntermediate(irOp, {x, y});
+                //    IRFormat *instJustInserted = &currentBlock.irCodes.back();
+                //    instJustInserted->setPreviousSameOpInst(cseTracker.getCurrentInstPtr(irOp));
+                //    cseTracker.setCurrentInst(irOp,instJustInserted);
+                //}
+                //else
+                //    return existingCommonSub;
             }
             else
                 Error("expression",{"term"});
@@ -986,18 +999,18 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
     //Operands in branch should point to a block
     if(isBranchCond(irOp))
     {
-        Result operandToChange;
+        Result *operandToChange;
         unsigned long operandIndex = 0;
         if(ir_line.operands.size() > 1)
             operandIndex = 1;
-        operandToChange = ir_line.operands.at(operandIndex);
+        operandToChange = &ir_line.operands.at(operandIndex);
 
         //only care about jump to the inst more than 1(no jump to main) and direct jump(do not allow jump to location stored in address)
-        if(operandToChange.getConst() > 0 && operandToChange.getKind() == constKind)
+        if(operandToChange->getConst() > 0 && operandToChange->getKind() == constKind)
         {
-            int blockNum = instructionBlockPair.at(operandToChange.getConst());
-            operandToChange.setBlock(blockNum);
-            ir_line.operands.at(operandIndex) = operandToChange;
+            int blockNum = instructionBlockPair.at(operandToChange->getConst());
+            operandToChange->setBlock(blockNum);
+            //ir_line.operands.at(operandIndex) = operandToChange;
         }
     }
 
@@ -1069,6 +1082,10 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
         for (auto blockPair : basicBlockList) {
             BasicBlock block = blockPair.second;
             graphDrawer->writeNodeStart(block.getBlockNum(), block.getBlockName());
+            for (auto code : block.phiCodes) {
+                string codeString = getCodeString(code);
+                graphDrawer->writeCode(codeString);
+            }
             for (auto code : block.irCodes) {
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
@@ -1145,6 +1162,7 @@ void Parser::printBlock()
         {
             BasicBlock block = blockPair.second;
             cout<<"Block " << block.getBlockNum() << " -------------------------------------" << endl;
+            printIRCodes(block.phiCodes);
             printIRCodes(block.irCodes);
             cout<<"Forward Edge to";
             for(auto edge : block.CFGForwardEdges)
@@ -1283,9 +1301,9 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
         std::cerr << "Current scope is invalid" << std::endl;
         return;
     }
-    SymTable parentSymTable = parentSymTableIter->second;
-    auto symListIter = parentSymTable.funcSymbolList.find(symbolName);
-    if(symListIter != parentSymTable.funcSymbolList.end())
+    SymTable *parentSymTable = &parentSymTableIter->second;
+    auto symListIter = parentSymTable->funcSymbolList.find(symbolName);
+    if(symListIter != parentSymTable->funcSymbolList.end())
     {
         std::cerr << "Same symbol already exist in symbol table" << std::endl;
         return;
@@ -1302,8 +1320,7 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
     //Make symbol
     Symbol functionSymbol(symType,IRpc,(int)numOfParam);
     //insert this symbol to symbol table.
-    parentSymTable.funcSymbolList.insert({symbolName, functionSymbol});
-    symTableList.at(currentScope) = parentSymTable;
+    parentSymTable->funcSymbolList.insert({symbolName, functionSymbol});
 
     //Make its own symbol table
     SymTable newSymTable(currentScope);
@@ -1327,18 +1344,16 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
         std::cerr << "Current scope is not valid" << std::endl;
         return;
     }
-    SymTable currentSymTable = symTableIter->second;
-    int localVarTop = currentSymTable.getLocalVarTop() - varSize;//move go downwards
+    SymTable *currentSymTable = &symTableIter->second;
+    int localVarTop = currentSymTable->getLocalVarTop() - varSize;//move go downwards
     //Make symbol
     Symbol newSymbol(symType,localVarTop,arrayCapacity);
 
     //Update symtable
-    currentSymTable.varSymbolList.insert({symbol, newSymbol});
+    currentSymTable->varSymbolList.insert({symbol, newSymbol});
 
-    currentSymTable.setLocalVarTop(localVarTop);
+    currentSymTable->setLocalVarTop(localVarTop);
 
-    //update symtable list
-    symTableList.at(currentScope) = currentSymTable;
 }
 
 void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
@@ -1350,15 +1365,12 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
         std::cerr << "Current scope is not valid" << std::endl;
         return;
     }
-    SymTable currentSymTable = symTableIter->second;
+    SymTable *currentSymTable = &symTableIter->second;
     //Make symbol
     Symbol newSymbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index);
 
     //Update symtable
-    currentSymTable.varSymbolList.insert({symbol, newSymbol});
-
-    //update symtable list
-    symTableList.at(currentScope) = currentSymTable;
+    currentSymTable->varSymbolList.insert({symbol, newSymbol});
 }
 
 void Parser:: symbolTableUpdate(string var,Symbol varSym)
@@ -1366,14 +1378,13 @@ void Parser:: symbolTableUpdate(string var,Symbol varSym)
     string currentScope = scopeStack.top();
     while(currentScope != "")
     {
-        SymTable currentSymTable = symTableList.at(currentScope);
-        auto symIter = currentSymTable.varSymbolList.find(var);
-        if(symIter != currentSymTable.varSymbolList.end()) {
+        SymTable *currentSymTable = &symTableList.at(currentScope);
+        auto symIter = currentSymTable->varSymbolList.find(var);
+        if(symIter != currentSymTable->varSymbolList.end()) {
             symIter->second = varSym;
-            symTableList.at(currentScope) = currentSymTable;
             return;
         }
-        currentScope = currentSymTable.getParent();
+        currentScope = currentSymTable->getParent();
     }
 
     return; //There is no symbol
@@ -1441,31 +1452,27 @@ void Parser :: UnCJF(Result &x)
     x.setFixLoc(IRpc - 1);
 }
 
-void Parser ::  Fixup(unsigned long loc)
+void Parser :: Fixup(unsigned long loc)
 {
-    IRFormat operationToChange = IRCodes.at(loc);
+    IRFormat *operationToChange = &IRCodes.at(loc);
     unsigned long operandToFix = 0; //IR_bra
-    if(operationToChange.getIROP() != IR_bra)
+    if(operationToChange->getIROP() != IR_bra)
         operandToFix = 1;
 
-    operationToChange.operands.at(operandToFix).setConst(IRpc);
-    IRCodes.at(loc) = operationToChange;
+    operationToChange->operands.at(operandToFix).setConst(IRpc);
+
 
     //Block with fixed instruction also has forward edge to current PC
     unsigned long targetBlockNum = instructionBlockPair.at(loc);
 
     string currentScope = scopeStack.top();
-    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
-    BasicBlock targetBlock = basicBlockList.at(targetBlockNum);
+    unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentScope);
+    BasicBlock *targetBlock = &basicBlockList->at(targetBlockNum);
 
-    targetBlock.CFGForwardEdges.push_back(currentBlock.getBlockNum());
+    targetBlock->CFGForwardEdges.push_back(currentBlock.getBlockNum());
     //targetBlock.DTForwardEdges.push_back(currentBlockNum.getBlockNum());
-    operationToChange.operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
-    //Assume that the last instruction would be branch
-    targetBlock.irCodes.back() = operationToChange;
+    operationToChange->operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
 
-    basicBlockList.at(targetBlockNum) = targetBlock;
-    functionList.at(currentScope) = basicBlockList;
 }
 
 void Parser :: FixLink(unsigned long loc)
@@ -1540,14 +1547,12 @@ void Parser::predefinedFunc()
 void Parser::updateBlockForDT(int dominatingBlockNum)//dominatingBlock dominate current block
 {
     string currentScope = scopeStack.top();
-    unordered_map<int, BasicBlock> basicBlockList = functionList.at(currentScope);
-    BasicBlock targetBlock = basicBlockList.at(dominatingBlockNum);
+    unordered_map<int, BasicBlock> *basicBlockList = &functionList.at(currentScope);
+    BasicBlock *targetBlock = &basicBlockList->at(dominatingBlockNum);
 
-    targetBlock.DTForwardEdges.push_back(
+    targetBlock->DTForwardEdges.push_back(
             currentBlock.getBlockNum());//after end of while -> dominated by dominating block(condition)
 
-    basicBlockList.at(dominatingBlockNum) = targetBlock;
-    functionList.at(currentScope) = basicBlockList;
 
     stack<int> dominatedBy = dominatedByInfo.at(dominatingBlockNum);
     dominatedBy.push(currentBlock.getBlockNum());
@@ -1564,22 +1569,20 @@ BasicBlock Parser::getBlockFromNum(int blockNum) {
 void Parser::insertBasicBlock(BasicBlock block)
 {
     string currentScope = scopeStack.top();
-    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
+    unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentScope);
     int blockNum = block.getBlockNum();
-    basicBlockList.insert({blockNum,currentBlock});
-    functionList.at(currentScope) = basicBlockList;
+    basicBlockList->insert({blockNum,currentBlock});
     numOfBlock++;
 }
 
-void Parser::updateBasicBlockCodes(int modifiedBlockNum, vector<IRFormat> codes)
+void Parser::updatePhiInBB(int modifiedBlockNum, vector<IRFormat> phiCodes)
 {
     string currentScope = scopeStack.top();
-    unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
-    BasicBlock modifiedBlock = basicBlockList.at(modifiedBlockNum);
-    modifiedBlock.irCodes = codes;
-    basicBlockList.at(modifiedBlockNum) = modifiedBlock;
-    functionList.at(currentScope) = basicBlockList;
+    unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentScope);
+    BasicBlock *modifiedBlock = &basicBlockList->at(modifiedBlockNum);
+    modifiedBlock->phiCodes = phiCodes;
 }
+
 
 bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate)
 {
@@ -1604,7 +1607,15 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
             if(isCurrentCond)
                 currentBlock.setTrueEdge(currentBlockNum + 1);
         }
-        insertBasicBlock(currentBlock);
+
+
+        string currentScope = scopeStack.top();
+        unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentScope);
+        int blockNum = currentBlock.getBlockNum();
+        basicBlockList->insert({blockNum,currentBlock});
+        numOfBlock++;
+
+        //insertBasicBlock(currentBlock);
         currentBlock = BasicBlock(currentBlockNum + 1,newBlockKind);
         return true;
     }
@@ -1626,7 +1637,7 @@ bool Parser:: isDominate(int dominatingBlockNum, int dominatedBlockNum)
     return false;
 }
 
-void Parser:: emitOrUpdatePhi(Result x){                    //If x is variable and the current block is condition update phi function
+void Parser:: emitOrUpdatePhi(Result x, int defInst){                    //If x is variable and the current block is condition update phi function
     if(x.getKind() == varKind)//Variable Definition
     {
         if(ssaBuilder.currentBlockKind.empty())//Currently not in the then, else block
@@ -1654,15 +1665,38 @@ void Parser:: emitOrUpdatePhi(Result x){                    //If x is variable a
         {
             IRFormat phiCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
             if(phiCode.getIROP() != IR_err) { //there is new phi
-                //before assignment variables in blk_while_body and blk_while_cond are now defined in phi
+                //Between assignment variables in blk_while_body and blk_while_cond are now defined in phi
+                int conditionBlockNum = ssaBuilder.getCurrentJoinBlockNum();
+                for(int i = conditionBlockNum ; i < currentBlock.getBlockNum() ; i++)
+                {
+                    //for block number i,
+                    string currentFunc = scopeStack.top();
+                    unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentFunc);
+                    BasicBlock *targetBlock = &basicBlockList->at(i);
+                    for(auto& irCode : targetBlock->irCodes)
+                    {
+                        for(auto& operand : irCode.operands)
+                        {
+                            if(operand.getKind() == varKind && operand.getDefInst() == ssaBuilder.getPreviousDefinedInst())
+                            {
+                                if(operand.getVariable() == x.getVariable())
+                                    operand.setDefInst(phiCode.getLineNo());
+                            }
+                        }
+                    }
+                }
+
+
+                //current Block
                 for(auto& irCode : currentBlock.irCodes)
                 {
-                    if(irCode.getLineNo() == IRpc - 1)//Skip for just assigned value
+                    if(irCode.getLineNo() == defInst)//Skip for just assigned value
                         continue;
                     for(auto& operand : irCode.operands)
                     {
-                        if(operand.getKind() == varKind)
+                        if(operand.getKind() == varKind && operand.getDefInst() == ssaBuilder.getPreviousDefinedInst())
                         {
+                            int abc = irCode.getLineNo();
                             if(operand.getVariable() == x.getVariable())
                                 operand.setDefInst(phiCode.getLineNo());
                         }

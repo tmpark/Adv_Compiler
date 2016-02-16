@@ -23,6 +23,7 @@
 #include "GraphDrawer.h"
 #include "SSABuilder.h"
 #include "BasicBlock.h"
+#include "CSETracker.h"
 
 using namespace std;
 
@@ -145,7 +146,7 @@ private:
 
     //Intermediate Code emittion
     Result emitIntermediate(IROP irOp,std::initializer_list<Result> x);
-    void emitOrUpdatePhi(Result x);
+    void emitOrUpdatePhi(Result x, int defInst);
     void CondJF(Result &x);
     void UnCJF(Result &x);
     void Fixup(unsigned long loc);
@@ -166,7 +167,7 @@ private:
     BasicBlock currentBlock;
     unordered_map<int,int> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
-    void updateBasicBlockCodes(int modifiedBlockNum, vector<IRFormat> codes);
+    void updatePhiInBB(int modifiedBlockNum, vector<IRFormat> codes);
     void insertBasicBlock(BasicBlock block);
     void updateBlockForDT(int dominatingBlockNum);
     BasicBlock getBlockFromNum(int blockNum);
@@ -185,6 +186,8 @@ private:
     //SSA
     SSABuilder ssaBuilder;
 
+    //CSE
+    CSETracker cseTracker;
 /*
     //Code emit related
     void PutF1(int op, int a, int b, int c);
