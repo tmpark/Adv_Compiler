@@ -24,16 +24,16 @@ public:
     void prepareForProcess(string var,int blockNum, int instrNum);
     void revertToOuter(int blockNum);
     //Return true there is new phi
-    IRFormat updatePhiFunction(Result x,int operandIndex, int IRpc);
+    shared_ptr<IRFormat> updatePhiFunction(Result x,int operandIndex, int IRpc);
     void startJoinBlock(BlockKind blockKind,int joinBlockNum);
     void endJoinBlock();
     //BasicBlock getJoinBlock(){return currentJoinBlock;}
     int getCurrentJoinBlockNum(){return currentJoinBlockNum;};
     int getPreviousDefinedInst(){return previousDef.getDefInst();};
 
-    vector<IRFormat> getPhiCodes(){return currentPhiCodes;};
+    vector<shared_ptr<IRFormat>> getPhiCodes(){return currentPhiCodes;};
     stack<BlockKind> currentBlockKind;
-    vector<IRFormat> currentPhiCodes;
+    vector<shared_ptr<IRFormat>> currentPhiCodes;
 
 private:
     //Function wide information
@@ -55,7 +55,7 @@ private:
 
 
     //Phi related information
-    stack<vector<IRFormat>> previousPhiCodes;
+    stack<vector<shared_ptr<IRFormat>>> previousPhiCodes;
     stack<BlockKind> previousJoinBlockKind;
     stack<int> previousJoinBlockNum;
     //BasicBlock currentJoinBlock;

@@ -41,8 +41,8 @@ public:
     void setBlockKind(BlockKind arg){blockKind = arg;};
     BlockKind getBlockKind(){return blockKind;};
 
-    vector<IRFormat> irCodes;
-    vector<IRFormat> phiCodes;
+    vector<shared_ptr<IRFormat>> irCodes;
+    vector<shared_ptr<IRFormat>> phiCodes;
     vector<int> CFGForwardEdges;
     vector<int> DTForwardEdges;
 private:

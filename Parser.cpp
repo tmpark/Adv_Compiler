@@ -27,10 +27,11 @@ Parser* Parser::instance() {
 }
 
 
-RC Parser::openFile(const std::string &fileName) {
+RC Parser::openFile(const std::string &folder, const std::string &sourceFileName, const std::string &sourceFileFormat) {
     RC rc;
+    fileName = sourceFileName;
     Scanner *scanner = Scanner::instance();
-    rc = scanner->openFile(fileName);
+    rc = scanner->openFile(folder + sourceFileName + sourceFileFormat);
     return rc;
 }
 
@@ -53,7 +54,7 @@ void Parser :: startParse()
     computation();
 }
 void Parser :: Error(std::string nonTerminal, std::initializer_list<std::string> missingTokens){
-    std::cerr << "Parser error: in " << nonTerminal << ", " <<std::flush;
+    std::cerr << fileName << ": Parser error in " << nonTerminal << ", " <<std::flush;
 
     for (auto i: missingTokens)
         std::cerr << "(" << i << ") "<<std::flush;
@@ -116,6 +117,7 @@ void Parser::computation() {
             dominatedBy.push(currentBlock.getBlockNum());
             dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
             ssaBuilder = SSABuilder("main", currentBlock.getBlockNum(), IRpc);
+            cseTracker = CSETracker();
             //Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
             if(isStatSequence(scannerSym))
@@ -235,6 +237,7 @@ void Parser::funcDecl(){
                 {
                     scopeStack.push(symName); //Current Scope set
                     ssaBuilder = SSABuilder(symName, currentBlock.getBlockNum(), IRpc);
+                    cseTracker = CSETracker();
                     //Parameters become local variable
 
                     int index = 0;//index in stack
@@ -494,7 +497,7 @@ void Parser::whileStatement() {
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
 
-                        vector<IRFormat> phiCodes = ssaBuilder.getPhiCodes();
+                        vector<shared_ptr<IRFormat>> phiCodes = ssaBuilder.getPhiCodes();
                         //vector<IRFormat> irCodes = phiCodes;
                         //irCodes.insert(irCodes.end(),std::make_move_iterator(joinBlockCodes.begin()),std::make_move_iterator(joinBlockCodes.end()));
                         updatePhiInBB(conditionBlockNum, phiCodes);
@@ -507,11 +510,11 @@ void Parser::whileStatement() {
                         for(auto code : phiCodes)
                         {
                             //Phi is also kind of definition
-                            Result definedOperand = code.operands.at(0);
+                            Result definedOperand = code->operands.at(0);
                             ssaBuilder.prepareForProcess(definedOperand.getVariable(),currentBlock.getBlockNum(),definedOperand.getDefInst());
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
-                            emitOrUpdatePhi(definedOperand,code.getLineNo());
+                            emitOrUpdatePhi(definedOperand,code->getLineNo());
                         }
                     }
                     else
@@ -599,7 +602,7 @@ void Parser::ifStatement() {
                     if(scannerSym == fiToken)
                     {
 
-                        vector<IRFormat> phiCodes = ssaBuilder.getPhiCodes();
+                        vector<shared_ptr<IRFormat>> phiCodes = ssaBuilder.getPhiCodes();
                         ssaBuilder.endJoinBlock(); //go back to outer joinBlock
 
                         for(auto code : phiCodes)
@@ -607,12 +610,12 @@ void Parser::ifStatement() {
                             currentBlock.phiCodes.push_back(code);//contents of join block is copied
 
                             //Phi is also kind of definition
-                            Result definedOperand = code.operands.at(0);
+                            Result definedOperand = code->operands.at(0);
                             ssaBuilder.prepareForProcess(definedOperand.getVariable(),currentBlock.getBlockNum(),definedOperand.getDefInst());
                             ssaBuilder.insertDefinedInstr();
 
                             //If there is outer join block propagate
-                            emitOrUpdatePhi(definedOperand,code.getLineNo());
+                            emitOrUpdatePhi(definedOperand,code->getLineNo());
                         }
 
                         Next();
@@ -733,8 +736,8 @@ Result Parser::assignment() {
                     result = emitIntermediate(IR_move,{y,x});
 
                     //code just inserted before
-                    Result x_updated = IRCodes.back().operands.at(1);//index 1 means defined instr updated x
-                    emitOrUpdatePhi(x_updated,IRCodes.back().getLineNo());
+                    Result x_updated = IRCodes.back()->operands.at(1);//index 1 means defined instr updated x
+                    emitOrUpdatePhi(x_updated,IRCodes.back()->getLineNo());
                 }
                 else
                     Error("assignment",{"expression"});
@@ -792,16 +795,8 @@ Result Parser::expression() {
                 y = term();
 
                 //Find the same expression in the list
-                //Result existingCommonSub = cseTracker.findExistingCommonSub(irOp, x, y);
-                //if(existingCommonSub.getKind() == errKind) //There is no common sub
-                //{
-                    result = emitIntermediate(irOp, {x, y});
-                //    IRFormat *instJustInserted = &currentBlock.irCodes.back();
-                //    instJustInserted->setPreviousSameOpInst(cseTracker.getCurrentInstPtr(irOp));
-                //    cseTracker.setCurrentInst(irOp,instJustInserted);
-                //}
-                //else
-                //    return existingCommonSub;
+
+                result = emitIntermediate(irOp, {x, y});
             }
             else
                 Error("expression",{"term"});
@@ -930,7 +925,6 @@ Result Parser::designator() {
             x.setConst(xSymbol.getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
-
             y.setReg(FRAMEPOINTER);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             y = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
@@ -959,14 +953,16 @@ IROP Parser::relOp() {
 }
 
 
-Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
+Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 {
+
     //Normal IR generation
     Result result;
     result.setInst(IRpc);
-    IRFormat ir_line;
-    ir_line.setLineNo(IRpc);
-    ir_line.setIROP(irOp);
+    shared_ptr<IRFormat> ir_line(new IRFormat);
+    ir_line->setLineNo(IRpc);
+    ir_line->setIROP(irOp);
+
     int index = 0;
 
     instructionBlockPair.insert({IRpc, currentBlock.getBlockNum()});//it is emitted now in current block
@@ -990,9 +986,49 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
                 x_i.setDefInst(instr);
             }
         }
-        ir_line.operands.push_back(x_i);
+        ir_line->operands.push_back(x_i);
         index++;
     }
+
+
+    //Check whether elimination is possible(only for arithmetics?)
+    if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg)
+    {
+        Result existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
+        if(existingCommonSub.getKind() != errKind)
+            return existingCommonSub;
+    }
+    //For common subexpression tracking
+
+    int dominatingBlock;
+    int dominatedBlock = currentBlock.getBlockNum();
+    shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
+    if(previousSameOpInst == NULL)//if there is no instruction yet, it's the first->dominated itself
+        dominatingBlock = dominatedBlock;
+    else
+        dominatingBlock = instructionBlockPair.at(previousSameOpInst->getLineNo());//should dominate
+
+    while(!isDominate(dominatingBlock,dominatedBlock))
+    {
+        cseTracker.revertToOuter(irOp);
+        previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
+        if(previousSameOpInst == NULL)//if there is no instruction yet, it's the first->dominated itself
+            dominatingBlock = dominatedBlock;
+        else
+            dominatingBlock = instructionBlockPair.at(previousSameOpInst->getLineNo());//should dominate
+    }
+
+    ir_line->setPreviousSameOpInst(cseTracker.getCurrentInstPtr(irOp));
+    //if dominatingBlock == dominatedBlock is same:overwrite, otherwise push
+    bool sameBlock = false;
+    if(previousSameOpInst == NULL && dominatingBlock == dominatedBlock)// initial element
+        sameBlock = false;
+    else if(previousSameOpInst != NULL && dominatingBlock == dominatedBlock)
+        sameBlock = true;
+    else if(dominatingBlock != dominatedBlock)
+        sameBlock = false;
+    cseTracker.setCurrentInst(irOp,ir_line,sameBlock);
+
     IRCodes.push_back(ir_line);
 
     //IR in BasicBlock generation
@@ -1001,9 +1037,9 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
     {
         Result *operandToChange;
         unsigned long operandIndex = 0;
-        if(ir_line.operands.size() > 1)
+        if(ir_line->operands.size() > 1)
             operandIndex = 1;
-        operandToChange = &ir_line.operands.at(operandIndex);
+        operandToChange = &ir_line->operands.at(operandIndex);
 
         //only care about jump to the inst more than 1(no jump to main) and direct jump(do not allow jump to location stored in address)
         if(operandToChange->getConst() > 0 && operandToChange->getKind() == constKind)
@@ -1020,12 +1056,12 @@ Result Parser::emitIntermediate(IROP irOp,std::initializer_list<Result> x)
     return result;
 }
 
-string Parser :: getCodeString(IRFormat code)
+string Parser :: getCodeString(shared_ptr<IRFormat> code)
 {
     string tab = "  ";
-    string result = to_string(code.getLineNo()) + tab + getIROperatorString(code.getIROP());
+    string result = to_string(code->getLineNo()) + tab + getIROperatorString(code->getIROP());
     int index = 0;
-    for(auto operand : code.operands)
+    for(auto operand : code->operands)
     {
         if(operand.getKind() == errKind)
             break;
@@ -1187,15 +1223,15 @@ void Parser::printBlock()
 }
 
 
-void Parser::printIRCodes(vector<IRFormat> codes)
+void Parser::printIRCodes(vector<shared_ptr<IRFormat>> codes)
 {
 
     for(auto code : codes) {
-        std::string op = getIROperatorString(code.getIROP());
-        std::cout << code.getLineNo() << "\t" << op << "\t";
+        std::string op = getIROperatorString(code->getIROP());
+        std::cout << code->getLineNo() << "\t" << op << "\t";
 
         int index = 0;
-        for(auto operand : code.operands)
+        for(auto operand : code->operands)
         {
             if(operand.getKind() == errKind)
                 break;
@@ -1454,7 +1490,7 @@ void Parser :: UnCJF(Result &x)
 
 void Parser :: Fixup(unsigned long loc)
 {
-    IRFormat *operationToChange = &IRCodes.at(loc);
+    shared_ptr<IRFormat> operationToChange = IRCodes.at(loc);
     unsigned long operandToFix = 0; //IR_bra
     if(operationToChange->getIROP() != IR_bra)
         operandToFix = 1;
@@ -1480,11 +1516,11 @@ void Parser :: FixLink(unsigned long loc)
     unsigned long next;
     while(loc != 0)
     {
-        IRFormat operationToChange = IRCodes.at(loc);
+        shared_ptr<IRFormat> operationToChange = IRCodes.at(loc);
         unsigned long operandToFix = 0; //IR_bra
-        if(operationToChange.getIROP() != IR_bra)
+        if(operationToChange->getIROP() != IR_bra)
             operandToFix = 1;
-        next = (unsigned long)operationToChange.operands.at(operandToFix).getConst();
+        next = (unsigned long)operationToChange->operands.at(operandToFix).getConst();
         Fixup(loc);
         loc = next;
     }
@@ -1575,7 +1611,7 @@ void Parser::insertBasicBlock(BasicBlock block)
     numOfBlock++;
 }
 
-void Parser::updatePhiInBB(int modifiedBlockNum, vector<IRFormat> phiCodes)
+void Parser::updatePhiInBB(int modifiedBlockNum, vector<shared_ptr<IRFormat>> phiCodes)
 {
     string currentScope = scopeStack.top();
     unordered_map<int,BasicBlock> *basicBlockList = &functionList.at(currentScope);
@@ -1646,8 +1682,8 @@ void Parser:: emitOrUpdatePhi(Result x, int defInst){                    //If x 
         if(ssaBuilder.currentBlockKind.top() == blk_if_then)//left operand of phi should be modified
         {
             //Operand index 1 should be changed
-            IRFormat irCode = ssaBuilder.updatePhiFunction(x, 1, IRpc);
-            if(irCode.getIROP() != IR_err) {
+            shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x, 1, IRpc);
+            if(irCode != NULL) {
                 IRCodes.push_back(irCode);
                 IRpc++;
             }
@@ -1655,16 +1691,16 @@ void Parser:: emitOrUpdatePhi(Result x, int defInst){                    //If x 
         else if(ssaBuilder.currentBlockKind.top() == blk_if_else)//right opernad of phi should be modified
         {
             //Operand index 2 should be changed
-            IRFormat irCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
-            if(irCode.getIROP() != IR_err) {
+            shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
+            if(irCode != NULL) {
                 IRCodes.push_back(irCode);
                 IRpc++;
             }
         }
         else if(ssaBuilder.currentBlockKind.top() == blk_while_body)
         {
-            IRFormat phiCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
-            if(phiCode.getIROP() != IR_err) { //there is new phi
+            shared_ptr<IRFormat> phiCode = ssaBuilder.updatePhiFunction(x, 2, IRpc);
+            if(phiCode != NULL) { //there is new phi
                 //Between assignment variables in blk_while_body and blk_while_cond are now defined in phi
                 int conditionBlockNum = ssaBuilder.getCurrentJoinBlockNum();
                 for(int i = conditionBlockNum ; i < currentBlock.getBlockNum() ; i++)
@@ -1675,12 +1711,12 @@ void Parser:: emitOrUpdatePhi(Result x, int defInst){                    //If x 
                     BasicBlock *targetBlock = &basicBlockList->at(i);
                     for(auto& irCode : targetBlock->irCodes)
                     {
-                        for(auto& operand : irCode.operands)
+                        for(auto& operand : irCode->operands)
                         {
                             if(operand.getKind() == varKind && operand.getDefInst() == ssaBuilder.getPreviousDefinedInst())
                             {
                                 if(operand.getVariable() == x.getVariable())
-                                    operand.setDefInst(phiCode.getLineNo());
+                                    operand.setDefInst(phiCode->getLineNo());
                             }
                         }
                     }
@@ -1690,15 +1726,15 @@ void Parser:: emitOrUpdatePhi(Result x, int defInst){                    //If x 
                 //current Block
                 for(auto& irCode : currentBlock.irCodes)
                 {
-                    if(irCode.getLineNo() == defInst)//Skip for just assigned value
+                    if(irCode->getLineNo() == defInst)//Skip for just assigned value
                         continue;
-                    for(auto& operand : irCode.operands)
+                    for(auto& operand : irCode->operands)
                     {
                         if(operand.getKind() == varKind && operand.getDefInst() == ssaBuilder.getPreviousDefinedInst())
                         {
-                            int abc = irCode.getLineNo();
+                            int abc = irCode->getLineNo();
                             if(operand.getVariable() == x.getVariable())
-                                operand.setDefInst(phiCode.getLineNo());
+                                operand.setDefInst(phiCode->getLineNo());
                         }
                     }
                 }

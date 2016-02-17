@@ -10,23 +10,17 @@
 class CSETracker {
 
 public:
-    IRFormat*getCurrentAddInst(){return currentAddInst;};
-    void setCurrentAddInst(IRFormat *arg){ currentAddInst = arg;};
-    IRFormat*getCurrentSubInst(){return currentSubInst;};
-    void setCurrentSubInst(IRFormat *arg){ currentSubInst = arg;};
-    IRFormat*getCurrentMulInst(){return currentMulInst;};
-    void setCurrentMulInst(IRFormat *arg){ currentMulInst = arg;};
-    IRFormat*getCurrentDivInst(){return currentDivInst;};
-    void setCurrentDivInst(IRFormat *arg){ currentDivInst = arg;};
-    Result findExistingCommonSub(IROP irOp, Result x,Result y);
-    IRFormat*getCurrentInstPtr(IROP irOp);
-    void setCurrentInst(IROP irOp, IRFormat* currentInst);
-
+    CSETracker();
+    Result findExistingCommonSub(IROP irOp, vector<Result> operands);
+    shared_ptr<IRFormat> getCurrentInstPtr(IROP irOp);
+    void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, bool sameBlock);
+    void revertToOuter(IROP irOp);
 private:
-    IRFormat *currentAddInst;
-    IRFormat *currentSubInst;
-    IRFormat *currentMulInst;
-    IRFormat *currentDivInst;
+    stack<shared_ptr<IRFormat>> currentAddInst;
+    stack<shared_ptr<IRFormat>> currentAddaInst;
+    stack<shared_ptr<IRFormat>> currentSubInst;
+    stack<shared_ptr<IRFormat>> currentMulInst;
+    stack<shared_ptr<IRFormat>> currentDivInst;
 };
 
 

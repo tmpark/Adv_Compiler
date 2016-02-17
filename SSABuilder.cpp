@@ -100,26 +100,23 @@ void SSABuilder:: revertToOuter(int blockNum)
     }
 }
 
-IRFormat SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
+shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
 {
-
     //Phi operand is phi x, x1, x2
     for(auto &irCode : currentPhiCodes)
     {
         //if(irCode.getIROP() != IR_phi)
             //continue;
-        Result var = irCode.operands.at((unsigned long)operandIndex);
+        Result var = irCode->operands.at((unsigned long)operandIndex);
         if(var.getVariable() == x.getVariable())//There is existing phi function
         {
             var.setDefInst(x.getDefInst());
-            irCode.operands.at((unsigned long)operandIndex) = var;
-            IRFormat nullCode;
+            irCode->operands.at((unsigned long)operandIndex) = var;
+            shared_ptr<IRFormat> nullCode = NULL;
             return nullCode;
         }
     }
     //There is no Phi function
-
-
 
     //make phi for the first time
     Result operand[3];
@@ -129,7 +126,7 @@ IRFormat SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
     int intactOperandIndex = (operandIndex == 1) ? 2 : 1;
     operand[intactOperandIndex] = previousDef;
 
-    IRFormat irCode(IRpc,IR_phi,operand[0],operand[1],operand[2]);
+    shared_ptr<IRFormat> irCode(new IRFormat(IRpc,IR_phi,operand[0],operand[1],operand[2]));
     //currentJoinBlock.irCodes.insert(currentJoinBlock.irCodes.begin(),irCode);
     currentPhiCodes.push_back(irCode);
     return irCode;
@@ -140,7 +137,7 @@ void SSABuilder::startJoinBlock(BlockKind blockKind,int joinBlockNum)
     previousPhiCodes.push(currentPhiCodes);
     previousJoinBlockKind.push(currentJoinBlockKind);
     previousJoinBlockNum.push(currentJoinBlockNum);
-    currentPhiCodes = vector<IRFormat>();
+    currentPhiCodes = vector<shared_ptr<IRFormat>>();
     currentJoinBlockKind = blockKind;
     currentJoinBlockNum = joinBlockNum;
 }

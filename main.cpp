@@ -55,7 +55,7 @@ int main() {
             sourceFileName = "factorial";
 
         Parser *parser = Parser :: instance();
-        rc = parser->openFile(folder + sourceFileName + sourceFileFormat);
+        rc = parser->openFile(folder,sourceFileName,sourceFileFormat);
         if(rc == -1)
             return 0;
         parser->startParse();

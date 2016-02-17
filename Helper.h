@@ -9,11 +9,14 @@
 #define TraceScan false
 #define NO_PARSE false
 
+
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <sstream>
 #include <iostream>
+#include <memory>
+#include <stack>
 
 using namespace std;
 
@@ -151,14 +154,14 @@ public:
     void setIROP(IROP arg){ir_op = arg;};
     IROP getIROP(){return ir_op;};
 
-    IRFormat* getPreviousSameOpInst(){return previousSameOpInst;};
-    void setPreviousSameOpInst(IRFormat* arg){previousSameOpInst = arg;};
+    shared_ptr<IRFormat>  getPreviousSameOpInst(){return previousSameOpInst;};
+    void setPreviousSameOpInst(shared_ptr<IRFormat> arg){previousSameOpInst = arg;};
     std::vector<Result> operands;
 
 private:
     int instNo;
     IROP ir_op;
-    IRFormat *previousSameOpInst;
+    shared_ptr<IRFormat> previousSameOpInst;
 
 };
 

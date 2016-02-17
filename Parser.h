@@ -18,7 +18,6 @@
 #include <vector>
 #include <stack>
 #include <map>
-#include <memory>
 #include "Scanner.h"
 #include "GraphDrawer.h"
 #include "SSABuilder.h"
@@ -104,18 +103,18 @@ public:
         _parser = 0;
     };
     static Parser* instance();
-    RC openFile(const std::string &fileName);
-    RC closeFile();
+    RC openFile(const std::string &folder, const std::string &sourceFileName, const std::string &sourceFileFormat);    RC closeFile();
     void startParse();
-    void printIRCodes(vector<IRFormat> codes);
+    void printIRCodes(vector<shared_ptr<IRFormat>> codes);
     void printSymbolTable();
     void printBlock();
     void createControlFlowGraph(const string &graphFolder,const string &sourceFileName);
     void createDominantGraph(const string &graphFolder,const string &sourceFileName);
 
-    string getCodeString(IRFormat code);
+    string getCodeString(shared_ptr<IRFormat> code);
 private:
 
+    string fileName;
     //Error message
     void Error(std::string nonTerminal, std::initializer_list<std::string> missingTokens);
 
@@ -145,7 +144,7 @@ private:
 
 
     //Intermediate Code emittion
-    Result emitIntermediate(IROP irOp,std::initializer_list<Result> x);
+    Result emitIntermediate(IROP irOp,vector<Result> x);
     void emitOrUpdatePhi(Result x, int defInst);
     void CondJF(Result &x);
     void UnCJF(Result &x);
@@ -158,7 +157,7 @@ private:
 
     int IRpc;
     int depth;
-    std::vector<IRFormat> IRCodes; //index is correspond to line Num
+    std::vector<shared_ptr<IRFormat>> IRCodes; //index is correspond to line Num
     std::stack<std::string> scopeStack;
     std::unordered_map<int,stack<int>> dominatedByInfo;
     std::unordered_map<std::string,SymTable> symTableList;
@@ -167,7 +166,7 @@ private:
     BasicBlock currentBlock;
     unordered_map<int,int> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
-    void updatePhiInBB(int modifiedBlockNum, vector<IRFormat> codes);
+    void updatePhiInBB(int modifiedBlockNum, vector<shared_ptr<IRFormat>> codes);
     void insertBasicBlock(BasicBlock block);
     void updateBlockForDT(int dominatingBlockNum);
     BasicBlock getBlockFromNum(int blockNum);
