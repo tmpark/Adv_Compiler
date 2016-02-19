@@ -14,13 +14,15 @@ public:
     Result findExistingCommonSub(IROP irOp, vector<Result> operands);
     shared_ptr<IRFormat> getCurrentInstPtr(IROP irOp);
     void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, bool sameBlock);
-    void revertToOuter(IROP irOp);
+    void revertToOuter(int blockNum);
+
 private:
     stack<shared_ptr<IRFormat>> currentAddInst;
     stack<shared_ptr<IRFormat>> currentAddaInst;
     stack<shared_ptr<IRFormat>> currentSubInst;
     stack<shared_ptr<IRFormat>> currentMulInst;
     stack<shared_ptr<IRFormat>> currentDivInst;
+    stack<shared_ptr<IRFormat>> currentNegInst;
 };
 
 

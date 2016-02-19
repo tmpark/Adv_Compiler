@@ -92,7 +92,7 @@ typedef enum{
 
 class Result{
 public:
-    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;defInst = -1;}
+    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;defInst = -1;array = false;}
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
@@ -114,16 +114,22 @@ public:
     int getReg(){return regNo;};
     void setDefInst(int arg){defInst = arg;};
     int getDefInst(){return defInst;};
+    void setArrayInst(){array = true;};
+    bool isArrayInst(){return array;};
+    void setConstPropVar(string arg){constPropVar = arg;};
+    string getConstPropVar(){return constPropVar;};
 
 private:
     Kind kind;
     //constKind
     int value;
+    string constPropVar;
     //varKind
     std::string variable;
     int defInst;
     //instKind
     int instNo;
+    bool array;
     int blockNo;
     IROP relOp ;
     int fixLoc;
@@ -134,19 +140,22 @@ private:
 class IRFormat
 {
 public:
-    IRFormat(){ instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;}
-    IRFormat(int instNo, IROP ir_op, Result operand0)
+    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;}
+    IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0)
     {
-        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;
+        this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;
     };
-    IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1)
+    IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1)
     {
-      this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;
     };
-    IRFormat(int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
+    IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
     {
-        this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;
     };
+
+    void setBlkNo(int arg){blkNo = arg;};
+    int getBlkNo(){return blkNo;};
 
     void setLineNo(int arg){ instNo = arg;};
     int getLineNo(){return instNo;};
@@ -159,6 +168,7 @@ public:
     std::vector<Result> operands;
 
 private:
+    int blkNo;
     int instNo;
     IROP ir_op;
     shared_ptr<IRFormat> previousSameOpInst;

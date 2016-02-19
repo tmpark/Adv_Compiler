@@ -145,7 +145,7 @@ private:
 
     //Intermediate Code emittion
     Result emitIntermediate(IROP irOp,vector<Result> x);
-    void emitOrUpdatePhi(Result x, int defInst);
+    void emitOrUpdatePhi(string x, Result defined);
     void CondJF(Result &x);
     void UnCJF(Result &x);
     void Fixup(unsigned long loc);

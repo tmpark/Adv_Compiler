@@ -12,24 +12,25 @@ SSABuilder::SSABuilder(string functionName, int startBlock, int startInst)
     this->startInst = startInst;
 }
 
-void SSABuilder:: prepareForProcess(string var, int blockNum, int instrNum)
+void SSABuilder:: prepareForProcess(string var, DefinedInfo defInfo)
 {
-    auto definedLocListIter = definedLocTable.find(var);
+    auto definedInfoListIter = definedInfoTable.find(var);
     varName = var;
-    if(definedLocTable.end() == definedLocListIter) //No information about var definition
+    if(definedInfoTable.end() == definedInfoListIter) //No information about var definition
     {
         //Initialize For First definition
-        currentBlockNum = blockNum;
-        currentInstrNum = instrNum;
-        definedLocList = stack<DefinedLoc>();
+        currentDefInfo = defInfo;
+        definedInfoList = stack<DefinedInfo>();
         definitionExist = false;
     }
     else{
-        currentBlockNum = blockNum;
-        currentInstrNum = instrNum;
-        definedLocList = definedLocListIter->second;
-        if(definedLocList.empty()) //There was def but no longer exist because that def is inner scope and popped
+        currentDefInfo = defInfo;
+        definedInfoList = definedInfoListIter->second;
+        if(definedInfoList.empty()) //There was def but no longer exist because that def is inner scope and popped
+        {
+            definedInfoTable.erase(var);
             definitionExist = false;
+        }
         else
             definitionExist = true;
     }
@@ -39,79 +40,79 @@ void SSABuilder:: prepareForProcess(string var, int blockNum, int instrNum)
 
 void SSABuilder:: insertDefinedInstr()
 {
-    previousDef.setVariable(varName);//remember previously defined loc(for later use of ssa phi)
-
     if(!definitionExist)
     {
-        DefinedLoc symDefined = {currentBlockNum, currentInstrNum};
-        definedLocList.push(symDefined);
-        definedLocTable.insert({varName, definedLocList});
+        definedInfoList.push(currentDefInfo);
+        definedInfoTable.insert({varName, definedInfoList});
 
-        previousDef.setDefInst(startInst);//Previously defined instr
+        //If there is no def before, become variable with start instruction
+        defBeforeInserted.setVariable(varName);//remember previously defined loc(for later use of ssa phi)
+        defBeforeInserted.setDefInst(startInst);//Previously defined instr
         return;
     }
 
-    DefinedLoc symDefined = definedLocList.top();
-
-    previousDef.setDefInst(symDefined.instNum);//previously defined instr
-
-    if(symDefined.blockNum == currentBlockNum) //local numbering
+    DefinedInfo symDefined = definedInfoList.top();
+    if(symDefined.getKind() == instKind)
+        defBeforeInserted.setInst(symDefined.getInst());
+    else if(symDefined.getKind() == constKind)
+        defBeforeInserted.setConst(symDefined.getConst());
+    else if(symDefined.getKind() == varKind)
     {
-        symDefined.instNum = currentInstrNum;
-        definedLocList.top() = symDefined;
+        defBeforeInserted.setVariable(symDefined.getVar());
+        defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
     }
+
+
+    if(symDefined.getBlkNum() == currentDefInfo.getBlkNum()) //local numbering
+        definedInfoList.top() = currentDefInfo;
     else//global numbering
-    {
-        symDefined.blockNum = currentBlockNum;
-        symDefined.instNum = currentInstrNum;
-        definedLocList.push(symDefined);
-    }
+        definedInfoList.push(currentDefInfo);
 
-    definedLocTable.at(varName) = definedLocList; //update
+    definedInfoTable.at(varName) = definedInfoList; //update
     return;
 }
 
 
-int SSABuilder::getDefinedInstr() {
+DefinedInfo SSABuilder::getDefinedInfo() {
 
     if(!definitionExist) //No definition (global, parameter, or illegal usage)
     {
         //Make virtual Definition(Defined at the start of a function)
-        DefinedLoc symDefined = {startBlock, startInst};
-        definedLocList.push(symDefined);
-        definedLocTable.insert({varName, definedLocList});
-        return startInst;
+        DefinedInfo symDefined(startBlock,varName);
+        symDefined.setVar(varName,startInst);
+        definedInfoList.push(symDefined);
+        definedInfoTable.insert({varName, definedInfoList});
+        return symDefined;
     }
     //There is instruction
-    return definedLocList.top().instNum;
+    return definedInfoList.top();
 }
 
 
 void SSABuilder:: revertToOuter(int blockNum)
 {
-    for (auto &definedLocIter : definedLocTable)
+    for (auto &definedLocIter : definedInfoTable)
     {
-        stack<DefinedLoc> definedLocs = definedLocIter.second;
-        while(!definedLocs.empty() && definedLocs.top().blockNum == blockNum)
+        stack<DefinedInfo> definedInfos = definedLocIter.second;
+        while(!definedInfos.empty() && definedInfos.top().getBlkNum() == blockNum)
         {
-            definedLocs.pop();
+            definedInfos.pop();
         }
-        definedLocIter.second = definedLocs;
+        definedLocIter.second = definedInfos;
     }
 }
 
-shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(Result x, int operandIndex, int IRpc)
+shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, Result defined, int operandIndex, int IRpc)
 {
     //Phi operand is phi x, x1, x2
     for(auto &irCode : currentPhiCodes)
     {
         //if(irCode.getIROP() != IR_phi)
             //continue;
-        Result var = irCode->operands.at((unsigned long)operandIndex);
-        if(var.getVariable() == x.getVariable())//There is existing phi function
+        Result var = irCode->operands.at(0);
+        if(var.getVariable() == x)//There is existing phi function
         {
-            var.setDefInst(x.getDefInst());
-            irCode->operands.at((unsigned long)operandIndex) = var;
+            irCode->operands.at((unsigned long)operandIndex) = defined;
             shared_ptr<IRFormat> nullCode = NULL;
             return nullCode;
         }
@@ -120,13 +121,14 @@ shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(Result x, int operandIndex, 
 
     //make phi for the first time
     Result operand[3];
-    operand[0] = x;
+    operand[0].setVariable(x);
     operand[0].setDefInst(IRpc);
-    operand[operandIndex] = x;
+    operand[operandIndex] = defined;//x;
     int intactOperandIndex = (operandIndex == 1) ? 2 : 1;
-    operand[intactOperandIndex] = previousDef;
+    operand[intactOperandIndex] = defBeforeInserted;
 
-    shared_ptr<IRFormat> irCode(new IRFormat(IRpc,IR_phi,operand[0],operand[1],operand[2]));
+    //Fixme:for if, join block should be fixed
+    shared_ptr<IRFormat> irCode(new IRFormat(currentJoinBlockNum,IRpc,IR_phi,operand[0],operand[1],operand[2]));
     //currentJoinBlock.irCodes.insert(currentJoinBlock.irCodes.begin(),irCode);
     currentPhiCodes.push_back(irCode);
     return irCode;

@@ -73,6 +73,10 @@ shared_ptr<IRFormat> CSETracker::getCurrentInstPtr(IROP irOp)
             if(currentDivInst.empty())
                 return NULL;
             return currentDivInst.top();
+        case IR_neg:
+            if(currentNegInst.empty())
+                return NULL;
+            return currentNegInst.top();
         default:
             return NULL;
     }
@@ -111,11 +115,34 @@ void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, boo
             else
                 currentDivInst.push(currentInst);
             break;
+        case IR_neg:
+            if(sameBlock)
+                currentNegInst.top() = currentInst;
+            else
+                currentNegInst.push(currentInst);
+            break;
         default:
             break;
     }
 }
 
+void CSETracker:: revertToOuter(int blockNum)
+{
+    while(!currentAddInst.empty() && currentAddInst.top()->getBlkNo() == blockNum)
+            currentAddInst.pop();
+    while(!currentSubInst.empty() && currentSubInst.top()->getBlkNo() == blockNum)
+        currentSubInst.pop();
+    while(!currentMulInst.empty() && currentMulInst.top()->getBlkNo() == blockNum)
+        currentMulInst.pop();
+    while(!currentDivInst.empty() && currentDivInst.top()->getBlkNo() == blockNum)
+        currentDivInst.pop();
+    while(!currentAddaInst.empty() && currentAddaInst.top()->getBlkNo() == blockNum)
+        currentAddaInst.pop();
+    while(!currentNegInst.empty() && currentNegInst.top()->getBlkNo() == blockNum)
+        currentAddInst.pop();
+}
+
+/*
 void CSETracker::revertToOuter(IROP irOp)
 {
     switch(irOp)
@@ -139,3 +166,4 @@ void CSETracker::revertToOuter(IROP irOp)
             break;
     }
 }
+*/

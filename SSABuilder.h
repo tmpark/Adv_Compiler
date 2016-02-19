@@ -10,26 +10,55 @@
 
 using namespace std;
 
+/*
 typedef struct{
-    int blockNum;
+    int blkNum;
     int instNum;
-} DefinedLoc;
+} DefinedInfo;
+*/
+
+
+class DefinedInfo
+{
+public:
+    DefinedInfo(){};
+    DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;};
+    void setInst(int arg){kind = instKind; instNum = arg;};
+    int getInst(){return instNum;};
+    void setVar(string arg0, int arg1){ kind = varKind;var = arg0;definedInst = arg1;};
+    string getVar(){return var;};
+    int getDefinedInstOfVar(){return definedInst;};
+    void setConst(int arg){ kind = constKind; constVal = arg;};
+    int getConst(){return constVal;};
+    Kind getKind(){return kind;};
+    int getBlkNum(){return blkNum;};
+
+private:
+    int blkNum;
+    string symbol;
+    Kind kind;
+    int instNum;
+    string var;
+    int definedInst;
+    int constVal;
+};
+
 
 class SSABuilder {
 public:
     SSABuilder(string functionName, int startBlock, int startInst);
     SSABuilder(){};
     void insertDefinedInstr();
-    int getDefinedInstr();
-    void prepareForProcess(string var,int blockNum, int instrNum);
+    DefinedInfo getDefinedInfo();
+    void prepareForProcess(string var,DefinedInfo defInfo);
     void revertToOuter(int blockNum);
     //Return true there is new phi
-    shared_ptr<IRFormat> updatePhiFunction(Result x,int operandIndex, int IRpc);
+    shared_ptr<IRFormat> updatePhiFunction(string x, Result defined,int operandIndex, int IRpc);
     void startJoinBlock(BlockKind blockKind,int joinBlockNum);
     void endJoinBlock();
     //BasicBlock getJoinBlock(){return currentJoinBlock;}
     int getCurrentJoinBlockNum(){return currentJoinBlockNum;};
-    int getPreviousDefinedInst(){return previousDef.getDefInst();};
+    Result getDefBeforeInserted(){return defBeforeInserted;};
 
     vector<shared_ptr<IRFormat>> getPhiCodes(){return currentPhiCodes;};
     stack<BlockKind> currentBlockKind;
@@ -41,17 +70,18 @@ private:
     int startBlock;
     int startInst;
     BlockKind currentJoinBlockKind;
-    unordered_map<string,stack<DefinedLoc>> definedLocTable;
+    unordered_map<string,stack<DefinedInfo>> definedInfoTable;
 
 
     //Var wide information
     string varName;
-    stack<DefinedLoc> definedLocList;
-    int currentBlockNum;
-    int currentInstrNum;
+    stack<DefinedInfo> definedInfoList;
+    //int currentBlockNum;
+    //int currentInstrNum;
     int currentJoinBlockNum;
+    DefinedInfo currentDefInfo;
     bool definitionExist;
-    Result previousDef;
+    Result defBeforeInserted;
 
 
     //Phi related information
