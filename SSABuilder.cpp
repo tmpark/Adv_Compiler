@@ -62,11 +62,10 @@ void SSABuilder:: insertDefinedInstr()
         defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
     }
 
-
-    if(symDefined.getBlkNum() == currentDefInfo.getBlkNum()) //local numbering
-        definedInfoList.top() = currentDefInfo;
-    else//global numbering
+    if(symDefined.ispreserved()) //local numbering
         definedInfoList.push(currentDefInfo);
+    else//global numbering
+        definedInfoList.top() = currentDefInfo;
 
     definedInfoTable.at(varName) = definedInfoList; //update
     return;
@@ -91,14 +90,29 @@ DefinedInfo SSABuilder::getDefinedInfo() {
 
 void SSABuilder:: revertToOuter(int blockNum)
 {
+    //until getBlkNum dominate blockNum
     for (auto &definedLocIter : definedInfoTable)
     {
         stack<DefinedInfo> definedInfos = definedLocIter.second;
-        while(!definedInfos.empty() && definedInfos.top().getBlkNum() == blockNum)
+        while(!definedInfos.empty() && definedInfos.top().getBlkNum() > blockNum)
         {
             definedInfos.pop();
         }
+        if(!definedInfos.empty())
+            definedInfos.top().setPreserved(false);
         definedLocIter.second = definedInfos;
+    }
+}
+
+void SSABuilder:: preserveOuter()
+{
+    for (auto &definedLocIter : definedInfoTable)
+    {
+        stack<DefinedInfo> definedInfos = definedLocIter.second;
+        if(!definedInfos.empty()) {
+            definedInfos.top().setPreserved(true);
+            definedLocIter.second = definedInfos;
+        }
     }
 }
 

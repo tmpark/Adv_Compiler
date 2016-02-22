@@ -88,7 +88,6 @@ void Parser::computation() {
     SymTable newSymTable;
     symTableList.insert({"main",newSymTable});
     //Result tempJumpLoc;tempJumpLoc.setConst(0);
-    //emitIntermediate(IR_bra,{tempJumpLoc});
     //Default block for jump to the main
     //finalizeAndStartNewBlock(false);
 
@@ -450,11 +449,12 @@ void Parser::whileStatement() {
         Next();
         if(isRelation(scannerSym))
         {
+            //CSE should include loads in while body(actually after blk_while_cond)
+            ssaBuilder.currentBlockKind.push(blk_while_body);
+
             //At the start of while, new Block starts
-            if(!finalizeAndStartNewBlock(blk_while_cond, false, true,true)) //Already New block is made(just change the name of block)
-            {
+            if(!finalizeAndStartNewBlock(blk_while_cond, false, true,true)) //Already New block is made(just change the name of block
                 currentBlock.setBlockKind(blk_while_cond);
-            }
 
             int dominatingBlockNum = currentBlock.getBlockNum();
             int conditionBlockNum = dominatingBlockNum;
@@ -463,12 +463,9 @@ void Parser::whileStatement() {
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
             ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
-
+            ssaBuilder.preserveOuter();
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
-
-            ssaBuilder.currentBlockKind.push(blk_while_body);
-
 
             if(scannerSym == doToken)
             {
@@ -483,7 +480,7 @@ void Parser::whileStatement() {
                         Next();
                         //Next to od token
                         follow = x;
-                        follow.setFixLoc(follow.getFixLoc() - 1);//jump one instruction more because while should check condition for every iteration
+                        follow.setFixLoc(follow.getFixLoc());//jump one instruction more because while should check condition for every iteration
                         //cmp <- follow.fixloc
                         //bsh <- x.fixloc
 
@@ -492,8 +489,9 @@ void Parser::whileStatement() {
 
 
                         //After inner block, ssa numbering should be revert to the previous state
-                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
-                        cseTracker.revertToOuter(currentBlock.getBlockNum());
+                        ssaBuilder.revertToOuter(dominatingBlockNum);
+                        cseTracker.revertToOuter(dominatingBlockNum);
+
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
 
@@ -522,6 +520,9 @@ void Parser::whileStatement() {
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
                         }
+                        //When completely out of while block, do the cse for load
+                        if(ssaBuilder.currentBlockKind.empty() || ssaBuilder.currentBlockKind.top() != blk_while_body)
+                            cseForLoad(dominatingBlockNum); // Do for for innner block
                     }
                     else
                         Error("whileStatement",{getTokenStr(odToken)});
@@ -552,7 +553,7 @@ void Parser::ifStatement() {
 
             //Join Block create
             ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
-
+            ssaBuilder.preserveOuter();
             //In if statement, after the condition new block starts
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
             {
@@ -575,8 +576,9 @@ void Parser::ifStatement() {
                         //Until this point, still in the then block
 
                         //After inner block, ssa numbering should be revert to the previous state
-                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
-                        cseTracker.revertToOuter(currentBlock.getBlockNum());
+                        ssaBuilder.revertToOuter(dominatingBlockNum);
+                        cseTracker.revertToOuter(dominatingBlockNum);
+                        ssaBuilder.preserveOuter();
                         //The start of else is new block
                         finalizeAndStartNewBlock(blk_if_else, false, false,false);//if then is performed it should avoid else
                         ssaBuilder.currentBlockKind.pop();
@@ -590,15 +592,15 @@ void Parser::ifStatement() {
                         else
                             Error("ifStatement",{"statSequence"});
                         //After inner block, ssa numbering should be revert to the previous state
-                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
-                        cseTracker.revertToOuter(currentBlock.getBlockNum());
+                        ssaBuilder.revertToOuter(dominatingBlockNum);
+                        cseTracker.revertToOuter(dominatingBlockNum);
                         if(finalizeAndStartNewBlock(blk_if_end, false, true,false)) //After all if related statements end, new block start
                             updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                     }
                     else {
                         //After inner block, ssa numbering should be revert to the previous state
-                        ssaBuilder.revertToOuter(currentBlock.getBlockNum());
-                        cseTracker.revertToOuter(currentBlock.getBlockNum());
+                        ssaBuilder.revertToOuter(dominatingBlockNum);
+                        cseTracker.revertToOuter(dominatingBlockNum);
                         if(finalizeAndStartNewBlock(blk_if_end, false, true,false))//After all if related statements end, new block start
                             updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                         Fixup((unsigned long) x.getFixLoc());
@@ -748,10 +750,13 @@ Result Parser::assignment() {
                 if(isExpression(scannerSym))
                 {
                     y = expression();
-                    result = emitIntermediate(IR_move,{y,x});//No move instruction more, but return y:which is x(variable)'s phi updated value
-                    //code just inserted before
-                    if(x.getKind() == varKind)
-                        emitOrUpdatePhi(x.getVariable(),result);//For variable x
+                    if(x.isArrayInst())
+                        result = emitIntermediate(IR_store,{y,x});
+                    else {
+                        result = emitIntermediate(IR_move, {y,x});
+                        //No move instruction more, but return y:which is x(variable)'s phi updated value
+                        emitOrUpdatePhi(x.getVariable(), result);//For variable x
+                    }
                 }
                 else
                     Error("assignment",{"expression"});
@@ -857,6 +862,9 @@ Result Parser::factor()
     if(isDesignator(scannerSym))
     {
         result = designator();
+        if(result.isArrayInst()) {
+            result = emitIntermediate(IR_load, {result});//load value of the index
+        }
     }
     else if (scannerSym == numberToken) {
         x.setConst(scanner->number);
@@ -897,7 +905,8 @@ Result Parser::designator() {
     if(scannerSym == identToken)
     {
         Symbol symInfo = symTableLookup(scanner->id, sym_var);
-        x.setVariable(scanner->id);
+        string variableName = scanner->id;
+        x.setVariable(variableName);
 
         Next();
 
@@ -942,9 +951,7 @@ Result Parser::designator() {
             y.setReg(FRAMEPOINTER);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             result = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
-            result.setArrayInst();
-            //load or store should be determined in assignment
-            //result = emitIntermediate(IR_load,{y});//load value of the index
+            result.setArrayInst(variableName);
         }
         else
             result = x;
@@ -971,38 +978,11 @@ IROP Parser::relOp() {
 
 Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 {
-
-
     //if one of operands are array, we should handle it
     int index = 0;
-    for(auto &x_i : x)
-    {
-
-        if(x_i.isArrayInst() && index == 1 && irOp == IR_move)//move to something array[]
-            irOp = IR_store;
-        else if(x_i.isArrayInst())//before instruction, emit load
-        {
-            //Make load instruction for it
-            shared_ptr<IRFormat> ir_line(new IRFormat);
-            ir_line->setBlkNo(currentBlock.getBlockNum());
-            ir_line->setLineNo(IRpc);
-            ir_line->setIROP(IR_load);
-            ir_line->operands.push_back(x_i);
-
-            IRCodes.push_back(ir_line);
-            currentBlock.irCodes.push_back(ir_line);
-            IRpc++;
-            x_i.setInst(ir_line->getLineNo());
-        }
-        index++;
-    }
 
     if(irOp == IR_move) //Copy Propagation : every move should be replaced by first operand
     {
-        if(x.at(1).getVariable()== "k")
-        {
-            int sibal = 0;
-        }
         string defVar = x.at(1).getVariable();
         DefinedInfo defInfo(currentBlock.getBlockNum(),defVar);
 
@@ -1024,8 +1004,6 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 
         return x.at(0);
     }
-
-    //Check whether it is array operation or not
 
     //Normal IR generation
     Result result;
@@ -1067,33 +1045,37 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     }
 
 
-    //Check whether elimination is possible(only for arithmetics?)
-    if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg)
+    //Check whether elimination is possible
+    if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg ||
+            irOp == IR_cmp|| irOp == IR_load)
     {
-        Result existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
-        if(existingCommonSub.getKind() != errKind)
-            return existingCommonSub;
+        //skip inner block of load for later cse
+        if(!ssaBuilder.currentBlockKind.empty() && ssaBuilder.currentBlockKind.top() == blk_while_body && irOp == IR_load)
+        {
+            shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
+            //CSE candidate(no store within a block) : there would be other store in outer so we don't know
+            if(existingCommonSub != NULL) {
+                ir_line->setPreviousSameOpInst(existingCommonSub);
+                cseTracker.loadInstructions.push_back(ir_line);
+            }
+        }
+            //cse for other instructions
+        else
+        {
+            shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
+            if(existingCommonSub != NULL) {
+                Result returnedVal;
+                returnedVal.setInst(existingCommonSub->getLineNo());
+                return returnedVal;
+            }
+        }
     }
     //For common subexpression tracking
 
-    int dominatingBlock;
-    int dominatedBlock = currentBlock.getBlockNum();
     shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
-    if(previousSameOpInst == NULL)//if there is no instruction yet, it's the first->dominated itself
-        dominatingBlock = dominatedBlock;
-    else
-        dominatingBlock = previousSameOpInst->getBlkNo();//should dominate
-
     ir_line->setPreviousSameOpInst(previousSameOpInst);
-    //if dominatingBlock == dominatedBlock is same:overwrite, otherwise push
-    bool sameBlock = false;
-    if(previousSameOpInst == NULL && dominatingBlock == dominatedBlock)// initial element
-        sameBlock = false;
-    else if(previousSameOpInst != NULL && dominatingBlock == dominatedBlock)
-        sameBlock = true;
-    else if(dominatingBlock != dominatedBlock)
-        sameBlock = false;
-    cseTracker.setCurrentInst(irOp,ir_line,sameBlock);
+
+    cseTracker.setCurrentInst(irOp,ir_line);
 
     IRCodes.push_back(ir_line);
 
@@ -1605,7 +1587,7 @@ Result Parser:: getAddressInStack(int location)
     Result FP;FP.setReg(FRAMEPOINTER);
     offset = emitIntermediate(IR_mul,{offset,adjust});
     offset = emitIntermediate(IR_adda,{offset,FP});
-    offset.setArrayInst();
+    //offset.setArrayInst();
     return offset;
 }
 
@@ -1837,6 +1819,73 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
     }
 }
 
+
+void Parser::cseForLoad(int dominatingBlockNum) {
+
+    vector<shared_ptr<IRFormat>> loadsCSEAvail;
+    //For all loads
+    for(auto loadInst : cseTracker.loadInstructions)
+    {
+        shared_ptr<IRFormat> storeInst = cseTracker.getCurrentInstPtr(IR_load);
+        bool cseAvail = true;
+        while(storeInst->getBlkNo() >= dominatingBlockNum)
+        {
+            if(storeInst->getIROP() == IR_store)
+            {
+                //Must be killed
+                if(loadInst->operands.at(0).getVariable() == storeInst->operands.at(1).getVariable()) {
+                    cseAvail = false;
+                    break;
+                }
+            }
+            storeInst = storeInst->getPreviousSameOpInst();
+        }
+        if(cseAvail)
+            loadsCSEAvail.push_back(loadInst);
+    }
+
+    for (int i = dominatingBlockNum; i < currentBlock.getBlockNum(); i++) {
+        string currentFunc = scopeStack.top();
+        unordered_map<int, BasicBlock> *basicBlockList = &functionList.at(currentFunc);
+        BasicBlock *targetBlock = &basicBlockList->at(i);
+
+        //Remove all loads
+        for(auto loadAvail : loadsCSEAvail)
+        {
+            if(loadAvail->getBlkNo() == i)
+            {
+                targetBlock->irCodes.erase(remove(targetBlock->irCodes.begin(),
+                                                  targetBlock->irCodes.end(),loadAvail),
+                                           targetBlock->irCodes.end());
+            }
+        }
+
+        //Replace instructions of load
+        for (auto &irCode : targetBlock->irCodes) {
+            for(auto loadAvail : loadsCSEAvail)
+            {
+                for (auto &operand : irCode->operands) {
+                    if(loadAvail->getLineNo() == operand.getInst())
+                        operand.setInst(loadAvail->getPreviousSameOpInst()->getLineNo());
+                }
+            }
+        }
+
+
+        for (auto &irCode : targetBlock->phiCodes) {
+            for (auto &operand : irCode->operands) {
+                for(auto loadAvail : loadsCSEAvail)
+                {
+                    if(loadAvail->getLineNo() == operand.getInst())
+                        operand.setInst(loadAvail->getPreviousSameOpInst()->getLineNo());
+                }
+            }
+        }
+
+
+    }
+    cseTracker.loadInstructions.clear();
+}
 /*
 void Parser::PutF1(int op, int a, int b, int c) {
     buf.at(pc) = op << 26 |

@@ -11,18 +11,22 @@ class CSETracker {
 
 public:
     CSETracker();
-    Result findExistingCommonSub(IROP irOp, vector<Result> operands);
+    shared_ptr<IRFormat> findExistingCommonSub(IROP irOp, vector<Result> operands);
     shared_ptr<IRFormat> getCurrentInstPtr(IROP irOp);
-    void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, bool sameBlock);
+    void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst);
     void revertToOuter(int blockNum);
 
+    vector<shared_ptr<IRFormat>> loadInstructions;
+
 private:
-    stack<shared_ptr<IRFormat>> currentAddInst;
-    stack<shared_ptr<IRFormat>> currentAddaInst;
-    stack<shared_ptr<IRFormat>> currentSubInst;
-    stack<shared_ptr<IRFormat>> currentMulInst;
-    stack<shared_ptr<IRFormat>> currentDivInst;
-    stack<shared_ptr<IRFormat>> currentNegInst;
+    shared_ptr<IRFormat> currentAddInst;
+    shared_ptr<IRFormat> currentAddaInst;
+    shared_ptr<IRFormat> currentSubInst;
+    shared_ptr<IRFormat> currentMulInst;
+    shared_ptr<IRFormat> currentDivInst;
+    shared_ptr<IRFormat> currentNegInst;
+    shared_ptr<IRFormat> currentCmpInst;
+    shared_ptr<IRFormat> currentLoadInst;
 };
 
 

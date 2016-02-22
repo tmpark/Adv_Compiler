@@ -389,7 +389,7 @@ bool isBranchCond(IROP op)
             (op == IR_bge) ||
             (op == IR_bgt);
 }
-\
+
 bool isSameOperand(Result x, Result y){
     Kind xKind = x.getKind();
     Kind yKind = y.getKind();
@@ -414,4 +414,9 @@ bool isSameOperand(Result x, Result y){
     else
         return false;
 
+}
+
+bool isInnerBlock(BlockKind blkKind)
+{
+     return (blkKind == blk_while_body || blkKind == blk_if_then || blkKind == blk_if_else);
 }

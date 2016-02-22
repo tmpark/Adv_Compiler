@@ -11,9 +11,7 @@ typedef enum{
     blk_normalAttr, blk_condAttr
 } BlockAttribute;
 
-typedef enum{
-    blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end
-}BlockKind;
+
 
 
 using namespace std;

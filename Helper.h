@@ -90,6 +90,11 @@ typedef enum{
     errKind,constKind,varKind,instKind,blockKind, regKind
 }Kind;
 
+typedef enum{
+    blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end
+}BlockKind;
+
+
 class Result{
 public:
     Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;defInst = -1;array = false;}
@@ -114,7 +119,7 @@ public:
     int getReg(){return regNo;};
     void setDefInst(int arg){defInst = arg;};
     int getDefInst(){return defInst;};
-    void setArrayInst(){array = true;};
+    void setArrayInst(string arrayVarName){array = true;variable = arrayVarName;};
     bool isArrayInst(){return array;};
     void setConstPropVar(string arg){constPropVar = arg;};
     string getConstPropVar(){return constPropVar;};
@@ -205,5 +210,6 @@ IROP negateCondition(IROP ir_op);
 std::vector<std::string> splitString(std::string stringToSplit);
 bool isBranchCond(IROP op);
 bool isSameOperand(Result x, Result y);
+bool isInnerBlock(BlockKind blkKind);
 
 #endif //ADV_COMPILER_HELPER_H

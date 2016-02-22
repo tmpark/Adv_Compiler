@@ -31,7 +31,7 @@ int main() {
     //Test26 -> CSE Test
 
     //1~34
-    for(int i = 1 ; i < 34 ; i++)
+    for(int i = 27 ; i < 28 ; i++)
     {
         if(i == 4)
             continue;

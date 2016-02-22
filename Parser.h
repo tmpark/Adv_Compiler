@@ -18,6 +18,7 @@
 #include <vector>
 #include <stack>
 #include <map>
+#include <algorithm>
 #include "Scanner.h"
 #include "GraphDrawer.h"
 #include "SSABuilder.h"
@@ -187,6 +188,7 @@ private:
 
     //CSE
     CSETracker cseTracker;
+    void cseForLoad(int dominatingBlockNum);
 /*
     //Code emit related
     void PutF1(int op, int a, int b, int c);

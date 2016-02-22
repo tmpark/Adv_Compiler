@@ -9,19 +9,30 @@ CSETracker:: CSETracker()
 {
 }
 
-Result CSETracker::findExistingCommonSub(IROP irOp,vector<Result> operands)
+shared_ptr<IRFormat> CSETracker::findExistingCommonSub(IROP irOp,vector<Result> operands)
 {
     shared_ptr<IRFormat> currentInstPtr = getCurrentInstPtr(irOp);
 
-    Result cseReturn;
 
     while(currentInstPtr != NULL)
     {
+        if(irOp == IR_load)
+        {
+            if(currentInstPtr->getIROP() == IR_store) {
+                //if the variable of array is the same kill(load var, store ~,var)
+                if (operands.at(0).getVariable() == currentInstPtr->operands.at(1).getVariable())
+                    return NULL;
+                else {
+                    currentInstPtr = currentInstPtr->getPreviousSameOpInst();
+                    continue;
+                }
+            }
+                //else let them go
+        }
         //For all operands they should be same
         bool sameOperand = true;
         for(int i = 0 ; i < operands.size() ;i++)
         {
-            vector<Result> temp = currentInstPtr->operands;
             if(!isSameOperand(currentInstPtr->operands.at(i),operands.at(i)))
                 sameOperand = false;
         }
@@ -34,17 +45,18 @@ Result CSETracker::findExistingCommonSub(IROP irOp,vector<Result> operands)
                 sameOperand = true;
         }
 
+
+
         //Same operand
         if(sameOperand)
         {
-            cseReturn.setInst(currentInstPtr->getLineNo());
-            return cseReturn;
+            return currentInstPtr;
         }
 
         currentInstPtr = currentInstPtr->getPreviousSameOpInst();
     }
 
-    return cseReturn;
+    return NULL;
 }
 
 //Fixme: Negate case insert
@@ -54,72 +66,57 @@ shared_ptr<IRFormat> CSETracker::getCurrentInstPtr(IROP irOp)
     switch(irOp)
     {
         case IR_add:
-            if(currentAddInst.empty())
-                return NULL;
-            return currentAddInst.top();
+            return currentAddInst;
         case IR_adda:
-            if(currentAddaInst.empty())
-                return NULL;
-            return currentAddaInst.top();
+            return currentAddaInst;
         case IR_sub:
-            if(currentSubInst.empty())
-                return NULL;
-            return currentSubInst.top();
+            return currentSubInst;
         case IR_mul:
-            if(currentMulInst.empty())
-                return NULL;
-            return currentMulInst.top();
+            return currentMulInst;
         case IR_div:
-            if(currentDivInst.empty())
-                return NULL;
-            return currentDivInst.top();
+            return currentDivInst;
         case IR_neg:
-            if(currentNegInst.empty())
-                return NULL;
-            return currentNegInst.top();
+            return currentNegInst;
+        case IR_cmp:
+            return currentCmpInst;
+        case IR_load:
+            return currentLoadInst;
+        case IR_store:
+            return currentLoadInst;
         default:
             return NULL;
     }
 }
-void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, bool sameBlock)
+void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst)
 {
     switch(irOp)
     {
         case IR_add:
-            if(sameBlock)
-                currentAddInst.top() = currentInst;
-            else
-                currentAddInst.push(currentInst);
+                currentAddInst = currentInst;
             break;
         case IR_adda:
-            if(sameBlock)
-                currentAddaInst.top() = currentInst;
-            else
-                currentAddaInst.push(currentInst);
+                currentAddaInst = currentInst;
             break;
         case IR_sub:
-            if(sameBlock)
-                currentSubInst.top() = currentInst;
-            else
-                currentSubInst.push(currentInst);
+                currentSubInst = currentInst;
             break;
         case IR_mul:
-            if(sameBlock)
-                currentMulInst.top() = currentInst;
-            else
-                currentMulInst.push(currentInst);
+                currentMulInst = currentInst;
             break;
         case IR_div:
-            if(sameBlock)
-                currentDivInst.top() = currentInst;
-            else
-                currentDivInst.push(currentInst);
+                currentDivInst = currentInst;
             break;
         case IR_neg:
-            if(sameBlock)
-                currentNegInst.top() = currentInst;
-            else
-                currentNegInst.push(currentInst);
+                currentNegInst = currentInst;
+            break;
+        case IR_cmp:
+                currentCmpInst = currentInst;
+            break;
+        case IR_load:
+                currentLoadInst = currentInst;
+            break;
+        case IR_store:
+                currentLoadInst = currentInst;
             break;
         default:
             break;
@@ -128,18 +125,34 @@ void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst, boo
 
 void CSETracker:: revertToOuter(int blockNum)
 {
-    while(!currentAddInst.empty() && currentAddInst.top()->getBlkNo() == blockNum)
-            currentAddInst.pop();
-    while(!currentSubInst.empty() && currentSubInst.top()->getBlkNo() == blockNum)
-        currentSubInst.pop();
-    while(!currentMulInst.empty() && currentMulInst.top()->getBlkNo() == blockNum)
-        currentMulInst.pop();
-    while(!currentDivInst.empty() && currentDivInst.top()->getBlkNo() == blockNum)
-        currentDivInst.pop();
-    while(!currentAddaInst.empty() && currentAddaInst.top()->getBlkNo() == blockNum)
-        currentAddaInst.pop();
-    while(!currentNegInst.empty() && currentNegInst.top()->getBlkNo() == blockNum)
-        currentAddInst.pop();
+    vector<shared_ptr<IRFormat>> killingStores;
+    int a;
+    if(currentAddInst != NULL)
+        a = currentAddInst->getBlkNo();
+    while(!(currentAddInst == NULL || currentAddInst->getBlkNo() <= blockNum))
+        currentAddInst = currentAddInst->getPreviousSameOpInst();
+    while(!(currentSubInst == NULL || currentSubInst->getBlkNo() <= blockNum))
+        currentSubInst = currentSubInst->getPreviousSameOpInst();
+    while(!(currentMulInst == NULL || currentMulInst->getBlkNo() <= blockNum))
+        currentMulInst = currentMulInst->getPreviousSameOpInst();
+    while(!(currentDivInst == NULL || currentDivInst->getBlkNo() <= blockNum))
+        currentDivInst = currentDivInst->getPreviousSameOpInst();
+    while(!(currentAddaInst == NULL || currentAddaInst->getBlkNo() <= blockNum))
+        currentAddaInst = currentAddaInst->getPreviousSameOpInst();
+    while(!(currentNegInst == NULL || currentNegInst->getBlkNo() <= blockNum))
+        currentNegInst = currentNegInst->getPreviousSameOpInst();
+    while(!(currentCmpInst == NULL || currentCmpInst->getBlkNo() <= blockNum))
+        currentCmpInst = currentCmpInst->getPreviousSameOpInst();
+    while(!(currentLoadInst == NULL || currentLoadInst->getBlkNo() <= blockNum)) {
+        if(currentLoadInst->getIROP() == IR_store)
+            killingStores.push_back(currentLoadInst);
+        currentLoadInst = currentLoadInst->getPreviousSameOpInst();
+    }
+    for(auto store : killingStores)
+    {
+        store->setPreviousSameOpInst(currentLoadInst);
+        currentLoadInst = store;
+    }
 }
 
 /*
