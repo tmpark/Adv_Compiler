@@ -123,12 +123,8 @@ void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst)
     }
 }
 
-void CSETracker:: revertToOuter(int blockNum)
+void CSETracker:: revertToOuter(int blockNum, bool endOfInnerBlock)
 {
-    vector<shared_ptr<IRFormat>> killingStores;
-    int a;
-    if(currentAddInst != NULL)
-        a = currentAddInst->getBlkNo();
     while(!(currentAddInst == NULL || currentAddInst->getBlkNo() <= blockNum))
         currentAddInst = currentAddInst->getPreviousSameOpInst();
     while(!(currentSubInst == NULL || currentSubInst->getBlkNo() <= blockNum))
@@ -148,10 +144,14 @@ void CSETracker:: revertToOuter(int blockNum)
             killingStores.push_back(currentLoadInst);
         currentLoadInst = currentLoadInst->getPreviousSameOpInst();
     }
-    for(auto store : killingStores)
+    if(endOfInnerBlock)
     {
-        store->setPreviousSameOpInst(currentLoadInst);
-        currentLoadInst = store;
+        for(auto store : killingStores)
+        {
+            store->setPreviousSameOpInst(currentLoadInst);
+            currentLoadInst = store;
+        }
+        killingStores.clear();
     }
 }
 

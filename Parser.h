@@ -6,13 +6,7 @@
 #define ADV_COMPILER_PARSER_H
 //#define CODEBUFSIZE 128 //128 * uint32 = 4096
 //#define NUMOFREGS 32
-#define RETURN_IN_STACK -1
-#define PRE_FP_IN_STACK 0
-#define PARAM_IN_STACK 1
-#define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
-#define FRAMEPOINTER 28
-#define STACKPOINTER 29
-#define RETURNADDRESS 31
+
 
 #include <array>
 #include <vector>
@@ -113,6 +107,9 @@ public:
     void createDominantGraph(const string &graphFolder,const string &sourceFileName);
 
     string getCodeString(shared_ptr<IRFormat> code);
+    std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> getFuncList(){return functionList;};
+
+
 private:
 
     string fileName;
@@ -163,14 +160,14 @@ private:
     std::unordered_map<int,stack<int>> dominatedByInfo;
     std::unordered_map<std::string,SymTable> symTableList;
     //std::vector<BasicBlock> basicBlockList;
-    std::unordered_map<std::string,unordered_map<int,BasicBlock>> functionList;
-    BasicBlock currentBlock;
+    std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList;
+    shared_ptr<BasicBlock> currentBlock;
     unordered_map<int,int> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
     void updatePhiInBB(int modifiedBlockNum, vector<shared_ptr<IRFormat>> codes);
-    void insertBasicBlock(BasicBlock block);
+    void insertBasicBlock(shared_ptr<BasicBlock> block);
     void updateBlockForDT(int dominatingBlockNum);
-    BasicBlock getBlockFromNum(int blockNum);
+    shared_ptr<BasicBlock> getBlockFromNum(int blockNum);
     bool isDominate(int dominatingBlockNum, int dominatedBlockNum);
 
     int numOfBlock;

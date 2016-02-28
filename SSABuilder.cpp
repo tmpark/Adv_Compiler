@@ -53,7 +53,7 @@ void SSABuilder:: insertDefinedInstr()
 
     DefinedInfo symDefined = definedInfoList.top();
     if(symDefined.getKind() == instKind)
-        defBeforeInserted.setInst(symDefined.getInst());
+        defBeforeInserted.setInst(symDefined.getInstNum(),symDefined.getInst());
     else if(symDefined.getKind() == constKind)
         defBeforeInserted.setConst(symDefined.getConst());
     else if(symDefined.getKind() == varKind)

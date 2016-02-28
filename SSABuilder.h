@@ -23,8 +23,9 @@ class DefinedInfo
 public:
     DefinedInfo(){};
     DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;preserved = false;};
-    void setInst(int arg){kind = instKind; instNum = arg;};
-    int getInst(){return instNum;};
+    void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNum = arg1; inst = arg2;};
+    int getInstNum(){return instNum;};
+    shared_ptr<IRFormat> getInst(){return inst;};
     void setVar(string arg0, int arg1){ kind = varKind;var = arg0;definedInst = arg1;};
     string getVar(){return var;};
     int getDefinedInstOfVar(){return definedInst;};
@@ -41,6 +42,7 @@ private:
     string symbol;
     Kind kind;
     int instNum;
+    shared_ptr<IRFormat> inst;
     string var;
     int definedInst;
     int constVal;
@@ -68,6 +70,7 @@ public:
     stack<BlockKind> currentBlockKind;
     vector<shared_ptr<IRFormat>> currentPhiCodes;
     void preserveOuter();
+    int getStartBlock(){return startBlock;};
 
 private:
     //Function wide information

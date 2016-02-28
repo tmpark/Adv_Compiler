@@ -286,6 +286,8 @@ std::string getIROperatorString(IROP irOp)
             return "move";
         case IR_phi:
             return "phi";
+        case IR_miu:
+            return "miu";
         case IR_end:
             return "end";
         case IR_bra:
@@ -402,7 +404,7 @@ bool isSameOperand(Result x, Result y){
             case varKind :
                 return (x.getVariable() == y.getVariable()) && (x.getDefInst() == y.getDefInst());
             case instKind :
-                return x.getInst() == y.getInst();
+                return x.getInstNum() == y.getInstNum();
             case regKind :
                 return x.getReg() == y.getReg();
             case blockKind :

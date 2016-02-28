@@ -9,6 +9,26 @@
 #define TraceScan false
 #define NO_PARSE false
 
+#define RETURN_IN_STACK -1
+#define PRE_FP_IN_STACK 0
+#define PARAM_IN_STACK 1
+#define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
+#define REG_PROXY 26
+#define NUM_OF_PROXY_REG 2
+#define REG_FP 28
+#define REG_SP 29
+#define REG_RET 31
+#define REG_PARAM 1
+#define NUM_OF_PARAM_REG 5
+#define REG_VIRTUAL 32
+#define REG_CALLER_SAVED 6
+#define NUM_OF_CALLER_SAVED 4
+#define REG_CALLEE_SAVED 10
+#define NUM_OF_CALlEE_SAVED 4
+
+
+
+
 
 #include <string>
 #include <unordered_map>
@@ -74,7 +94,7 @@ typedef enum{
 }Opcode;
 
 typedef enum{
-    IR_err, IR_neg, IR_add, IR_sub, IR_mul, IR_div, IR_cmp, IR_adda, IR_load, IR_store, IR_move, IR_phi, IR_end,
+    IR_err, IR_neg, IR_add, IR_sub, IR_mul, IR_div, IR_cmp, IR_adda, IR_load, IR_store, IR_move, IR_phi, IR_miu, IR_end,
     IR_bra, IR_bne, IR_beq, IR_ble, IR_blt, IR_bge, IR_bgt, IR_read, IR_write, IR_writeNL
 }IROP;
 
@@ -94,6 +114,7 @@ typedef enum{
     blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end
 }BlockKind;
 
+class IRFormat;
 
 class Result{
 public:
@@ -107,8 +128,9 @@ public:
     void setVariable(string arg1){kind = varKind; variable = arg1;};
     string getVariable(){return variable;};
     //Instruction
-    void setInst(int arg){kind = instKind; instNo = arg;};
-    int getInst(){return instNo;};
+    void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNo = arg1; inst = arg2;};
+    int getInstNum(){return instNo;};
+    shared_ptr<IRFormat> getInst(){return inst;};
     void setBlock(int arg){kind = blockKind; blockNo = arg;};
     int getBlock(){return blockNo;};
     void setRelOp(IROP arg){relOp = arg;}; //Only for relation
@@ -134,6 +156,7 @@ private:
     int defInst;
     //instKind
     int instNo;
+    shared_ptr<IRFormat> inst;
     bool array;
     int blockNo;
     IROP relOp ;
@@ -171,6 +194,7 @@ public:
     shared_ptr<IRFormat>  getPreviousSameOpInst(){return previousSameOpInst;};
     void setPreviousSameOpInst(shared_ptr<IRFormat> arg){previousSameOpInst = arg;};
     std::vector<Result> operands;
+    unordered_map<int,shared_ptr<IRFormat>> neighbors;
 
 private:
     int blkNo;

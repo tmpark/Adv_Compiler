@@ -1,5 +1,5 @@
 #include <iostream>
-#include "Parser.h"
+#include "RegAllocation.h"
 
 using namespace std;
 
@@ -30,8 +30,8 @@ int main() {
     //Test17,18,19->Copy Propagation Test
     //Test26 -> CSE Test
 
-    //1~34
-    for(int i = 27 ; i < 28 ; i++)
+    //1~35
+    for(int i = 1 ; i < 35 ; i++)
     {
         if(i == 4)
             continue;
@@ -62,6 +62,16 @@ int main() {
         //parser->printBlock();
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/",sourceFileName);
         parser->createDominantGraph(graphFolder+sourceFileName + "/",sourceFileName);
+
+        std::unordered_map<std::string,vector<BasicBlock>> functionList = parser->getFuncList();
+        for(auto function : functionList)
+        {
+            RegAllocation regAlloc(function.second);
+            regAlloc.buildIntefGraph();
+        }
+
+
+
         //string visualizeGraph = xvcg + " " + folder + graphFileName;
         //system(visualizeGraph.c_str());
         //parser->printIRCodes(parser->IRCodes); //Debug

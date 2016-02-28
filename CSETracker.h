@@ -14,7 +14,7 @@ public:
     shared_ptr<IRFormat> findExistingCommonSub(IROP irOp, vector<Result> operands);
     shared_ptr<IRFormat> getCurrentInstPtr(IROP irOp);
     void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst);
-    void revertToOuter(int blockNum);
+    void revertToOuter(int blockNum, bool endOfInnerBlock);
 
     vector<shared_ptr<IRFormat>> loadInstructions;
 
@@ -27,6 +27,8 @@ private:
     shared_ptr<IRFormat> currentNegInst;
     shared_ptr<IRFormat> currentCmpInst;
     shared_ptr<IRFormat> currentLoadInst;
+    vector<shared_ptr<IRFormat>> killingStores;
+
 };
 
 
