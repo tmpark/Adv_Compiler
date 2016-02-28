@@ -162,7 +162,7 @@ private:
     //std::vector<BasicBlock> basicBlockList;
     std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList;
     shared_ptr<BasicBlock> currentBlock;
-    unordered_map<int,int> instructionBlockPair;
+    unordered_map<int,shared_ptr<BasicBlock>> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);
     void updatePhiInBB(int modifiedBlockNum, vector<shared_ptr<IRFormat>> codes);
     void insertBasicBlock(shared_ptr<BasicBlock> block);

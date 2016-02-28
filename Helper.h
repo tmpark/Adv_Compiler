@@ -103,7 +103,7 @@ typedef enum{
 }EDGETYPE;
 
 typedef enum{
-    graph_CFG, graph_DT
+    graph_CFG, graph_DT, graph_IG
 }GRAPHTYPE;
 
 typedef enum{

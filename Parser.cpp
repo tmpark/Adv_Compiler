@@ -1038,7 +1038,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     Result result;
     result.setInst(IRpc,ir_line);
     index = 0;
-    instructionBlockPair.insert({IRpc, currentBlock->getBlockNum()});//it is emitted now in current block
+    instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
 
     for(auto x_i : x) {
@@ -1116,7 +1116,8 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
         //only care about jump to the inst more than 1(no jump to main) and direct jump(do not allow jump to location stored in address)
         if(operandToChange->getConst() >= 0 && operandToChange->getKind() == constKind)
         {
-            int blockNum = instructionBlockPair.at(operandToChange->getConst());
+            shared_ptr<BasicBlock> tempBlock = instructionBlockPair.at(operandToChange->getConst());
+            int blockNum = tempBlock->getBlockNum();
             operandToChange->setBlock(blockNum);
             //ir_line.operands.at(operandIndex) = operandToChange;
         }
@@ -1206,14 +1207,14 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
             for (auto dest : block->CFGForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
                 if (block->isCondBlock()) {
-                    if (block->isTrueEdge(dest)) {
+                    if (block->isTrueEdge(dest->getBlockNum())) {
                         edgeType = edge_true;
                     }
                     else {
                         edgeType = edge_false;
                     }
                 }
-                graphDrawer->writeEdge(block->getBlockNum(), dest, edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType);
             }
         }
         graphDrawer->writeEnd();
@@ -1257,13 +1258,16 @@ void Parser::createDominantGraph(const string &graphFolder,const string &sourceF
 
             for (auto dest : block->DTForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
-                graphDrawer->writeEdge(block->getBlockNum(), dest, edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType);
             }
         }
         graphDrawer->writeEnd();
         graphDrawer->closeFile();
     }
 }
+
+
+
 
 void Parser::printBlock()
 {
@@ -1278,7 +1282,7 @@ void Parser::printBlock()
             printIRCodes(block->irCodes);
             cout<<"Forward Edge to";
             for(auto edge : block->CFGForwardEdges)
-                cout << " " << edge;
+                cout << " " << edge->getBlockNum();
             cout << endl;
             cout<< "--------------------------------------------" << endl;
         }
@@ -1576,13 +1580,14 @@ void Parser :: Fixup(unsigned long loc)
 
 
     //Block with fixed instruction also has forward edge to current PC
-    unsigned long targetBlockNum = instructionBlockPair.at(loc);
+    shared_ptr<BasicBlock> tempBlock = instructionBlockPair.at(loc);
+    int targetBlockNum = tempBlock->getBlockNum();
 
     string currentScope = scopeStack.top();
     vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
     shared_ptr<BasicBlock> targetBlock = basicBlockList.at(targetBlockNum - ssaBuilder.getStartBlock());
 
-    targetBlock->CFGForwardEdges.push_back(currentBlock->getBlockNum());
+    targetBlock->CFGForwardEdges.push_back(currentBlock);
     //targetBlock.DTForwardEdges.push_back(currentBlockNum.getBlockNum());
     operationToChange->operands.at(operandToFix).setBlock(currentBlock->getBlockNum());
 
@@ -1664,8 +1669,7 @@ void Parser::updateBlockForDT(int dominatingBlockNum)//dominatingBlock dominate 
     vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
     shared_ptr<BasicBlock> targetBlock = basicBlockList.at(dominatingBlockNum - ssaBuilder.getStartBlock());
 
-    targetBlock->DTForwardEdges.push_back(
-            currentBlock->getBlockNum());//after end of while -> dominated by dominating block(condition)
+    targetBlock->DTForwardEdges.push_back(currentBlock);//after end of while -> dominated by dominating block(condition)
 
 
     stack<int> dominatedBy = dominatedByInfo.at(dominatingBlockNum);
@@ -1706,10 +1710,11 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
         //string currentScope = scopeStack.top();
         //unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
         int currentBlockNum = currentBlock->getBlockNum();
+        shared_ptr<BasicBlock> tempBlock = std::make_shared<BasicBlock> (currentBlockNum + 1,newBlockKind);
 
         //Current Block will be dominated by parent
         if(dominate) {
-            currentBlock->DTForwardEdges.push_back(currentBlockNum + 1);
+            currentBlock->DTForwardEdges.push_back(tempBlock);
             stack<int> dominatedBy = dominatedByInfo.at(currentBlockNum);
             dominatedBy.push(currentBlockNum + 1);
             dominatedByInfo.insert({currentBlockNum + 1,dominatedBy});
@@ -1717,7 +1722,7 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
 
         //int nextBlockNum = numOfBlock + 1;
         if(directFlowExist) { //Make forward edge to next block
-            currentBlock->CFGForwardEdges.push_back(currentBlockNum + 1);
+            currentBlock->CFGForwardEdges.push_back(tempBlock);
             if(isCurrentCond)
                 currentBlock->setTrueEdge(currentBlockNum + 1);
         }
@@ -1730,7 +1735,7 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
         numOfBlock++;
 
         //insertBasicBlock(currentBlock);
-        currentBlock = std::make_shared<BasicBlock> (currentBlockNum + 1,newBlockKind);
+        currentBlock = tempBlock;
         return true;
     //}
     //return false;

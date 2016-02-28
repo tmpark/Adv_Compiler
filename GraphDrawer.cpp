@@ -64,6 +64,8 @@ void GraphDrawer :: writePreliminary(GRAPHTYPE graphType,string functionName){
         graphTypeString = "Control-flow Graph";
     else if(graphType == graph_DT)
         graphTypeString = "Dominator Tree";
+    else if(graphType == graph_IG)
+        graphTypeString = "Interference Graph";
 
     string prelimi = string("digraph \"")+ graphTypeString + string(" for \'" + functionName + "\" {\n")
     + string("label=\"")+ graphTypeString + string(" for \'") + functionName + "\' function\";\n\n";

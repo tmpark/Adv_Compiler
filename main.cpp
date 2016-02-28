@@ -31,7 +31,7 @@ int main() {
     //Test26 -> CSE Test
 
     //1~35
-    for(int i = 1 ; i < 35 ; i++)
+    for(int i = 9 ; i < 10 ; i++)
     {
         if(i == 4)
             continue;
@@ -67,9 +67,9 @@ int main() {
         for(auto function : functionList)
         {
             RegAllocation regAlloc(function.second);
-            regAlloc.buildIntefGraph();
+            regAlloc.doRegAllocation();
+            regAlloc.createInterferenceGraph(graphFolder+sourceFileName + "/",sourceFileName,function.first);
         }
-
 
 
         //string visualizeGraph = xvcg + " " + folder + graphFileName;
