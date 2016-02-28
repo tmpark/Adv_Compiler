@@ -18,9 +18,9 @@ void RegAllocation::buildIntefGraph()
     for(; rit!= blocks.rend(); ++rit)
     {
 
-        BasicBlock targetBlock = *rit;
+        shared_ptr<BasicBlock> targetBlock = *rit;
         unordered_map<int,shared_ptr<IRFormat>> liveSet;
-        getLiveSet(liveSet,targetBlock.irCodes);
+        getLiveSet(liveSet,targetBlock->irCodes);
         //getLiveSet(liveSet,targetBlock.phiCodes);
     }
 

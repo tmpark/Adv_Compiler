@@ -63,7 +63,7 @@ int main() {
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/",sourceFileName);
         parser->createDominantGraph(graphFolder+sourceFileName + "/",sourceFileName);
 
-        std::unordered_map<std::string,vector<BasicBlock>> functionList = parser->getFuncList();
+        std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList = parser->getFuncList();
         for(auto function : functionList)
         {
             RegAllocation regAlloc(function.second);

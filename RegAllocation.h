@@ -11,11 +11,11 @@
 class RegAllocation {
 
 public:
-    RegAllocation(vector<BasicBlock> blocks){this->blocks = blocks;};
+    RegAllocation(vector<shared_ptr<BasicBlock>> blocks){this->blocks = blocks;};
     void buildIntefGraph();
 private:
 
-    vector<BasicBlock> blocks;
+    vector<shared_ptr<BasicBlock>> blocks;
     void makeEdge(shared_ptr<IRFormat> node1, shared_ptr<IRFormat> node2);
     void getLiveSet(unordered_map<int,shared_ptr<IRFormat>> &liveSet, vector<shared_ptr<IRFormat>> codes);
 

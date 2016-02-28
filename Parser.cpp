@@ -16,7 +16,7 @@ Parser :: Parser()
     numOfSym = 0;
     numOfBlock = 0;
     depth = 0;
-    currentBlock = BasicBlock(0,blk_entry);
+    currentBlock = make_shared<BasicBlock> (0,blk_entry);
 }
 
 
@@ -94,7 +94,7 @@ void Parser::computation() {
     if(scannerSym == mainToken)
     {
         scopeStack.push("main"); //main function scope start
-        vector<BasicBlock> emptyBasicBlockList;
+        vector<shared_ptr<BasicBlock>> emptyBasicBlockList;
         functionList.insert({"main",emptyBasicBlockList});
         depth = 1; //main, function, procedure are considered level 1
 
@@ -105,17 +105,17 @@ void Parser::computation() {
         while(isFuncDecl(scannerSym)) {
             //At the start of block in function, the start block dominates itself
             stack<int> dominatedBy;
-            dominatedBy.push(currentBlock.getBlockNum());
-            dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
+            dominatedBy.push(currentBlock->getBlockNum());
+            dominatedByInfo.insert({currentBlock->getBlockNum(),dominatedBy});
             funcDecl();
         }
         if(scannerSym == beginToken)
         {
             //At the start of block in main, the start block dominates itself
             stack<int> dominatedBy;
-            dominatedBy.push(currentBlock.getBlockNum());
-            dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
-            ssaBuilder = SSABuilder("main", currentBlock.getBlockNum(), IRpc);
+            dominatedBy.push(currentBlock->getBlockNum());
+            dominatedByInfo.insert({currentBlock->getBlockNum(),dominatedBy});
+            ssaBuilder = SSABuilder("main", currentBlock->getBlockNum(), IRpc);
             cseTracker = CSETracker();
             //Fixup(0);//Fix bra to first reach out here
             Next(); //Consume begin Token
@@ -221,7 +221,7 @@ void Parser::funcDecl(){
         if(scannerSym == identToken)
         {
             string symName = scanner->id;
-            vector<BasicBlock> emptyBasicBlockList;
+            vector<shared_ptr<BasicBlock>> emptyBasicBlockList;
             functionList.insert({symName,emptyBasicBlockList}); //New function inserted in function list
 
             Next();
@@ -235,7 +235,7 @@ void Parser::funcDecl(){
                 if(isFuncBody(scannerSym))
                 {
                     scopeStack.push(symName); //Current Scope set
-                    ssaBuilder = SSABuilder(symName, currentBlock.getBlockNum(), IRpc);
+                    ssaBuilder = SSABuilder(symName, currentBlock->getBlockNum(), IRpc);
                     cseTracker = CSETracker();
                     //Parameters become local variable
 
@@ -453,19 +453,19 @@ void Parser::whileStatement() {
             ssaBuilder.currentBlockKind.push(blk_while_body);
 
             //for block of which outer block is inner block
-            BlockKind outerBlockKind = currentBlock.getOuterBlockKind();
+            BlockKind outerBlockKind = currentBlock->getOuterBlockKind();
             //At the start of while, new Block starts
             if(!finalizeAndStartNewBlock(blk_while_cond, false, true,true)) //Already New block is made(just change the name of block
-                currentBlock.setBlockKind(blk_while_cond);
-            currentBlock.setOuterBlockKind(outerBlockKind);
+                currentBlock->setBlockKind(blk_while_cond);
+            currentBlock->setOuterBlockKind(outerBlockKind);
 
-            int dominatingBlockNum = currentBlock.getBlockNum();
+            int dominatingBlockNum = currentBlock->getBlockNum();
             int conditionBlockNum = dominatingBlockNum;
 
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
-            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
+            ssaBuilder.startJoinBlock(currentBlock->getBlockKind(),currentBlock->getBlockNum());
             ssaBuilder.preserveOuter();
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
@@ -487,7 +487,7 @@ void Parser::whileStatement() {
                         //cmp <- follow.fixloc
                         //bsh <- x.fixloc
 
-                        currentBlock.CFGForwardEdges.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
+                        currentBlock->CFGForwardEdges.push_back(instructionBlockPair.at(follow.getFixLoc())); //Connect forward edge to the point to the unconditional branch
                         UnCJF(follow); //unconditional branch follow.fixloc
 
 
@@ -497,7 +497,7 @@ void Parser::whileStatement() {
 
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
-                        currentBlock.setOuterBlockKind(outerBlockKind);
+                        currentBlock->setOuterBlockKind(outerBlockKind);
 
                         vector<shared_ptr<IRFormat>> phiCodes = ssaBuilder.getPhiCodes();
                         //vector<IRFormat> irCodes = phiCodes;
@@ -516,7 +516,7 @@ void Parser::whileStatement() {
                             Result definedOperand;
                             definedOperand.setInst(code->getLineNo(),code);
 
-                            DefinedInfo defInfo(currentBlock.getBlockNum(),targetOperand);
+                            DefinedInfo defInfo(currentBlock->getBlockNum(),targetOperand);
                             defInfo.setInst(code->getLineNo(),code);
 
                             ssaBuilder.prepareForProcess(targetOperand, defInfo);
@@ -553,15 +553,15 @@ void Parser::ifStatement() {
         {
             x = relation();
             CondJF(x);
-            int dominatingBlockNum = currentBlock.getBlockNum();
+            int dominatingBlockNum = currentBlock->getBlockNum();
 
             //Join Block create
-            ssaBuilder.startJoinBlock(currentBlock.getBlockKind(),currentBlock.getBlockNum());
+            ssaBuilder.startJoinBlock(currentBlock->getBlockKind(),currentBlock->getBlockNum());
             ssaBuilder.preserveOuter();
-            BlockKind outerBlockKind = currentBlock.getOuterBlockKind();
+            BlockKind outerBlockKind = currentBlock->getOuterBlockKind();
             //In if statement, after the condition new block starts
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
-                currentBlock.setBlockKind(blk_if_then);
+                currentBlock->setBlockKind(blk_if_then);
             ssaBuilder.currentBlockKind.push(blk_if_then);
             if(scannerSym == thenToken)
             {
@@ -608,7 +608,7 @@ void Parser::ifStatement() {
                             updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
                         Fixup((unsigned long) x.getFixLoc());
                     }
-                    currentBlock.setOuterBlockKind(outerBlockKind);
+                    currentBlock->setOuterBlockKind(outerBlockKind);
                     ssaBuilder.currentBlockKind.pop();
                     depth--; // end of the then and depth decreases
                     //updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
@@ -621,15 +621,15 @@ void Parser::ifStatement() {
 
                         for(auto code : phiCodes)
                         {
-                            code->setBlkNo(currentBlock.getBlockNum());//Fix join block num which was not correct at first.
-                            currentBlock.phiCodes.push_back(code);//contents of join block is copied
+                            code->setBlkNo(currentBlock->getBlockNum());//Fix join block num which was not correct at first.
+                            currentBlock->phiCodes.push_back(code);//contents of join block is copied
 
                             //Phi is also kind of definition(defined kind: inst)
                             string targetOperand = code->operands.at(0).getVariable();
                             Result definedOperand;
                             definedOperand.setInst(code->getLineNo(), code);
 
-                            DefinedInfo defInfo(currentBlock.getBlockNum(),targetOperand);
+                            DefinedInfo defInfo(currentBlock->getBlockNum(),targetOperand);
                             defInfo.setInst(code->getLineNo(),code);
 
                             ssaBuilder.prepareForProcess(targetOperand, defInfo);
@@ -995,7 +995,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     if(irOp == IR_move) //Copy Propagation : every move should be replaced by first operand
     {
         string defVar = x.at(1).getVariable();
-        DefinedInfo defInfo(currentBlock.getBlockNum(),defVar);
+        DefinedInfo defInfo(currentBlock->getBlockNum(),defVar);
 
         Kind definedKind = x.at(0).getKind();
         Result propagatedResult = x.at(0);
@@ -1032,13 +1032,13 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     //Normal IR generation
 
     shared_ptr<IRFormat> ir_line(new IRFormat);
-    ir_line->setBlkNo(currentBlock.getBlockNum());
+    ir_line->setBlkNo(currentBlock->getBlockNum());
     ir_line->setLineNo(IRpc);
     ir_line->setIROP(irOp);
     Result result;
     result.setInst(IRpc,ir_line);
     index = 0;
-    instructionBlockPair.insert({IRpc, currentBlock.getBlockNum()});//it is emitted now in current block
+    instructionBlockPair.insert({IRpc, currentBlock->getBlockNum()});//it is emitted now in current block
 
 
     for(auto x_i : x) {
@@ -1122,7 +1122,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
         }
     }
 
-    currentBlock.irCodes.push_back(ir_line);
+    currentBlock->irCodes.push_back(ir_line);
 
     IRpc++;
     return result;
@@ -1186,34 +1186,34 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
         }
 
         graphDrawer->writePreliminary(graph_CFG,functionName);
-        vector<BasicBlock> basicBlockList = function.second;
+        vector<shared_ptr<BasicBlock>> basicBlockList = function.second;
         for (auto blockPair : basicBlockList) {
-            BasicBlock block = blockPair;
-            graphDrawer->writeNodeStart(block.getBlockNum(), block.getBlockName());
-            for (auto code : block.phiCodes) {
+            shared_ptr<BasicBlock> block = blockPair;
+            graphDrawer->writeNodeStart(block->getBlockNum(), block->getBlockName());
+            for (auto code : block->phiCodes) {
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
-            for (auto code : block.irCodes) {
+            for (auto code : block->irCodes) {
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
-            if (block.isCondBlock()) {
+            if (block->isCondBlock()) {
                 graphDrawer->writeCodeForCond();
             }
             graphDrawer->writeNodeEnd();
 
-            for (auto dest : block.CFGForwardEdges) {
+            for (auto dest : block->CFGForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
-                if (block.isCondBlock()) {
-                    if (block.isTrueEdge(dest)) {
+                if (block->isCondBlock()) {
+                    if (block->isTrueEdge(dest)) {
                         edgeType = edge_true;
                     }
                     else {
                         edgeType = edge_false;
                     }
                 }
-                graphDrawer->writeEdge(block.getBlockNum(), dest, edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest, edgeType);
             }
         }
         graphDrawer->writeEnd();
@@ -1241,23 +1241,23 @@ void Parser::createDominantGraph(const string &graphFolder,const string &sourceF
         }
 
         graphDrawer->writePreliminary(graph_DT,functionName);
-        vector<BasicBlock> basicBlockList = function.second;
+        vector<shared_ptr<BasicBlock>> basicBlockList = function.second;
         for (auto blockPair : basicBlockList) {
-            BasicBlock block = blockPair;
-            graphDrawer->writeNodeStart(block.getBlockNum(), block.getBlockName());
-            for (auto code : block.phiCodes) {
+            shared_ptr<BasicBlock> block = blockPair;
+            graphDrawer->writeNodeStart(block->getBlockNum(), block->getBlockName());
+            for (auto code : block->phiCodes) {
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
-            for (auto code : block.irCodes) {
+            for (auto code : block->irCodes) {
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
             graphDrawer->writeNodeEnd();
 
-            for (auto dest : block.DTForwardEdges) {
+            for (auto dest : block->DTForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
-                graphDrawer->writeEdge(block.getBlockNum(), dest, edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest, edgeType);
             }
         }
         graphDrawer->writeEnd();
@@ -1269,15 +1269,15 @@ void Parser::printBlock()
 {
     for(auto function : functionList)
     {
-        vector<BasicBlock> basicBlockList = function.second;
+        vector<shared_ptr<BasicBlock>> basicBlockList = function.second;
         for(auto blockPair : basicBlockList)
         {
-            BasicBlock block = blockPair;
-            cout<<"Block " << block.getBlockNum() << " -------------------------------------" << endl;
-            printIRCodes(block.phiCodes);
-            printIRCodes(block.irCodes);
+            shared_ptr<BasicBlock> block = blockPair;
+            cout<<"Block " << block->getBlockNum() << " -------------------------------------" << endl;
+            printIRCodes(block->phiCodes);
+            printIRCodes(block->irCodes);
             cout<<"Forward Edge to";
-            for(auto edge : block.CFGForwardEdges)
+            for(auto edge : block->CFGForwardEdges)
                 cout << " " << edge;
             cout << endl;
             cout<< "--------------------------------------------" << endl;
@@ -1579,12 +1579,12 @@ void Parser :: Fixup(unsigned long loc)
     unsigned long targetBlockNum = instructionBlockPair.at(loc);
 
     string currentScope = scopeStack.top();
-    vector<BasicBlock> *basicBlockList = &functionList.at(currentScope);
-    BasicBlock *targetBlock = &basicBlockList->at(targetBlockNum - ssaBuilder.getStartBlock());
+    vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
+    shared_ptr<BasicBlock> targetBlock = basicBlockList.at(targetBlockNum - ssaBuilder.getStartBlock());
 
-    targetBlock->CFGForwardEdges.push_back(currentBlock.getBlockNum());
+    targetBlock->CFGForwardEdges.push_back(currentBlock->getBlockNum());
     //targetBlock.DTForwardEdges.push_back(currentBlockNum.getBlockNum());
-    operationToChange->operands.at(operandToFix).setBlock(currentBlock.getBlockNum());
+    operationToChange->operands.at(operandToFix).setBlock(currentBlock->getBlockNum());
 
 }
 
@@ -1661,30 +1661,30 @@ void Parser::predefinedFunc()
 void Parser::updateBlockForDT(int dominatingBlockNum)//dominatingBlock dominate current block
 {
     string currentScope = scopeStack.top();
-    vector<BasicBlock> *basicBlockList = &functionList.at(currentScope);
-    BasicBlock *targetBlock = &basicBlockList->at(dominatingBlockNum - ssaBuilder.getStartBlock());
+    vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
+    shared_ptr<BasicBlock> targetBlock = basicBlockList.at(dominatingBlockNum - ssaBuilder.getStartBlock());
 
     targetBlock->DTForwardEdges.push_back(
-            currentBlock.getBlockNum());//after end of while -> dominated by dominating block(condition)
+            currentBlock->getBlockNum());//after end of while -> dominated by dominating block(condition)
 
 
     stack<int> dominatedBy = dominatedByInfo.at(dominatingBlockNum);
-    dominatedBy.push(currentBlock.getBlockNum());
-    dominatedByInfo.insert({currentBlock.getBlockNum(),dominatedBy});
+    dominatedBy.push(currentBlock->getBlockNum());
+    dominatedByInfo.insert({currentBlock->getBlockNum(),dominatedBy});
 }
 
 
-BasicBlock Parser::getBlockFromNum(int blockNum) {
+shared_ptr<BasicBlock> Parser::getBlockFromNum(int blockNum) {
     string currentScope = scopeStack.top();
-    vector<BasicBlock> basicBlockList = functionList.at(currentScope);
+    vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
     return basicBlockList.at(blockNum - ssaBuilder.getStartBlock());
 }
 
-void Parser::insertBasicBlock(BasicBlock block)
+void Parser::insertBasicBlock(shared_ptr<BasicBlock> block)
 {
     string currentScope = scopeStack.top();
-    vector<BasicBlock> *basicBlockList = &functionList.at(currentScope);
-    int blockNum = block.getBlockNum();
+    vector<shared_ptr<BasicBlock>> *basicBlockList = &functionList.at(currentScope);
+    int blockNum = block->getBlockNum();
     basicBlockList->push_back(currentBlock);
     numOfBlock++;
 }
@@ -1692,8 +1692,8 @@ void Parser::insertBasicBlock(BasicBlock block)
 void Parser::updatePhiInBB(int modifiedBlockNum, vector<shared_ptr<IRFormat>> phiCodes)
 {
     string currentScope = scopeStack.top();
-    vector<BasicBlock> *basicBlockList = &functionList.at(currentScope);
-    BasicBlock *modifiedBlock = &basicBlockList->at(modifiedBlockNum - ssaBuilder.getStartBlock());
+    vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentScope);
+    shared_ptr<BasicBlock> modifiedBlock = basicBlockList.at(modifiedBlockNum - ssaBuilder.getStartBlock());
     modifiedBlock->phiCodes = phiCodes;
 }
 
@@ -1705,11 +1705,11 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
         //currentBlockNum.setBlockName(currentBlockName);
         //string currentScope = scopeStack.top();
         //unordered_map<int,BasicBlock> basicBlockList = functionList.at(currentScope);
-        int currentBlockNum = currentBlock.getBlockNum();
+        int currentBlockNum = currentBlock->getBlockNum();
 
         //Current Block will be dominated by parent
         if(dominate) {
-            currentBlock.DTForwardEdges.push_back(currentBlockNum + 1);
+            currentBlock->DTForwardEdges.push_back(currentBlockNum + 1);
             stack<int> dominatedBy = dominatedByInfo.at(currentBlockNum);
             dominatedBy.push(currentBlockNum + 1);
             dominatedByInfo.insert({currentBlockNum + 1,dominatedBy});
@@ -1717,20 +1717,20 @@ bool Parser::finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond
 
         //int nextBlockNum = numOfBlock + 1;
         if(directFlowExist) { //Make forward edge to next block
-            currentBlock.CFGForwardEdges.push_back(currentBlockNum + 1);
+            currentBlock->CFGForwardEdges.push_back(currentBlockNum + 1);
             if(isCurrentCond)
-                currentBlock.setTrueEdge(currentBlockNum + 1);
+                currentBlock->setTrueEdge(currentBlockNum + 1);
         }
 
 
         string currentScope = scopeStack.top();
-        vector<BasicBlock> *basicBlockList = &functionList.at(currentScope);
-        int blockNum = currentBlock.getBlockNum();
+        vector<shared_ptr<BasicBlock>> *basicBlockList = &functionList.at(currentScope);
+        int blockNum = currentBlock->getBlockNum();
         basicBlockList->push_back(currentBlock);
         numOfBlock++;
 
         //insertBasicBlock(currentBlock);
-        currentBlock = BasicBlock(currentBlockNum + 1,newBlockKind);
+        currentBlock = std::make_shared<BasicBlock> (currentBlockNum + 1,newBlockKind);
         return true;
     //}
     //return false;
@@ -1780,11 +1780,11 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
             //Between assignment variables in blk_while_body and blk_while_cond are now defined in phi
             int conditionBlockNum = ssaBuilder.getCurrentJoinBlockNum();
             string currentFunc = scopeStack.top();
-            vector<BasicBlock> *basicBlockList = &functionList.at(currentFunc);
-            for (int i = conditionBlockNum; i < currentBlock.getBlockNum(); i++) {
+            vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
+            for (int i = conditionBlockNum; i < currentBlock->getBlockNum(); i++) {
                 //for block number i,
 
-                BasicBlock *targetBlock = &basicBlockList->at(i - ssaBuilder.getStartBlock());
+                shared_ptr<BasicBlock> targetBlock = basicBlockList.at(i - ssaBuilder.getStartBlock());
                 for (auto &irCode : targetBlock->irCodes) {
                     for (auto &operand : irCode->operands) {
                         Result defJustBefore = ssaBuilder.getDefBeforeInserted();
@@ -1813,7 +1813,7 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
 
 
             //current Block
-            for (auto &irCode : currentBlock.irCodes) {
+            for (auto &irCode : currentBlock->irCodes) {
                 for (auto &operand : irCode->operands) {
                     Result defJustBefore = ssaBuilder.getDefBeforeInserted();
                     Kind defJustBeforeKind = defJustBefore.getKind();
@@ -1869,10 +1869,10 @@ void Parser::cseForLoad(int dominatingBlockNum) {
             loadsCSEAvail.push_back(loadInst);
     }
 
-    for (int i = dominatingBlockNum; i < currentBlock.getBlockNum(); i++) {
+    for (int i = dominatingBlockNum; i < currentBlock->getBlockNum(); i++) {
         string currentFunc = scopeStack.top();
-        vector<BasicBlock> *basicBlockList = &functionList.at(currentFunc);
-        BasicBlock *targetBlock = &basicBlockList->at(i - ssaBuilder.getStartBlock());
+        vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
+        shared_ptr<BasicBlock> targetBlock = basicBlockList.at(i - ssaBuilder.getStartBlock());
 
         //Remove all loads
         for(auto loadAvail : loadsCSEAvail)
