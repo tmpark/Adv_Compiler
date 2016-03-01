@@ -60,14 +60,21 @@ void GraphDrawer :: writePreliminary(GRAPHTYPE graphType,string functionName){
     if(!fileStream.is_open())
         return;
     string graphTypeString;
-    if(graphType == graph_CFG)
+    string edgeType;
+    if(graphType == graph_CFG) {
+        edgeType = string("digraph \"");
         graphTypeString = "Control-flow Graph";
-    else if(graphType == graph_DT)
+    }
+    else if(graphType == graph_DT) {
+        edgeType = string("digraph \"");
         graphTypeString = "Dominator Tree";
-    else if(graphType == graph_IG)
+    }
+    else if(graphType == graph_IG) {
+        edgeType = string("graph \"");
         graphTypeString = "Interference Graph";
+    }
 
-    string prelimi = string("digraph \"")+ graphTypeString + string(" for \'" + functionName + "\" {\n")
+    string prelimi = edgeType + graphTypeString + string(" for \'" + functionName + "\" {\n")
     + string("label=\"")+ graphTypeString + string(" for \'") + functionName + "\' function\";\n\n";
     fileStream.write(prelimi.c_str(),prelimi.size());
     return;
@@ -106,10 +113,12 @@ void GraphDrawer :: writeNodeEnd(){
 }
 
 
-void GraphDrawer :: writeEdge(int sourceNum, int targetNum, EDGETYPE edgeType)
+void GraphDrawer :: writeEdge(int sourceNum, int targetNum, EDGETYPE edgeType, GRAPHTYPE graphType)
 {
+
     if(!fileStream.is_open())
         return;
+
 
     string edge = string("\t") + string("Node") + to_string(sourceNum);
     if(edgeType == edge_true)
@@ -119,7 +128,13 @@ void GraphDrawer :: writeEdge(int sourceNum, int targetNum, EDGETYPE edgeType)
         edge = edge + string(":s1");
     }
 
-    edge = edge + string(" -> ") + string("Node") + to_string(targetNum) + string(";\n");
+    string edgeShape;
+    if(graphType == graph_CFG || graphType == graph_DT)
+        edgeShape = string(" -> ");
+    else if(graphType == graph_IG)
+        edgeShape = string(" -- ");
+
+    edge = edge + edgeShape + string("Node") + to_string(targetNum) + string(";\n");
 
     fileStream.write(edge.c_str(),edge.size());
 }

@@ -13,18 +13,21 @@
 #define PRE_FP_IN_STACK 0
 #define PARAM_IN_STACK 1
 #define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
-#define REG_PROXY 26
+#define REG_PROXY 25
 #define NUM_OF_PROXY_REG 2
+#define REG_RET_VAL 27
 #define REG_FP 28
 #define REG_SP 29
 #define REG_RET 31
-#define REG_PARAM 1
-#define NUM_OF_PARAM_REG 5
 #define REG_VIRTUAL 32
-#define REG_CALLER_SAVED 6
+#define REG_CALLER_SAVED 1
+#define REG_DATA 1
+#define REG_PARAM 1
 #define NUM_OF_CALLER_SAVED 4
-#define REG_CALLEE_SAVED 10
+#define NUM_OF_PARAM_REG 4
+#define REG_CALLEE_SAVED 5
 #define NUM_OF_CALlEE_SAVED 4
+#define NUM_OF_DATA_REGS 8
 
 
 
@@ -106,6 +109,8 @@ typedef enum{
     graph_CFG, graph_DT, graph_IG
 }GRAPHTYPE;
 
+
+
 typedef enum{
     errKind,constKind,varKind,instKind,blockKind, regKind
 }Kind;
@@ -168,18 +173,18 @@ private:
 class IRFormat
 {
 public:
-    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;}
+    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;cost = 0;}
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0)
     {
-        this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;
+        this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;cost = 0;regNo = -1;
     };
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1)
     {
-        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;cost = 0;regNo = -1;
     };
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
     {
-        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;cost = 0;regNo = -1;
     };
 
     void setBlkNo(int arg){blkNo = arg;};
@@ -191,15 +196,22 @@ public:
     void setIROP(IROP arg){ir_op = arg;};
     IROP getIROP(){return ir_op;};
 
+    void setCost(int arg){cost = arg;};
+    int getCost(){return cost;};
+
     shared_ptr<IRFormat>  getPreviousSameOpInst(){return previousSameOpInst;};
     void setPreviousSameOpInst(shared_ptr<IRFormat> arg){previousSameOpInst = arg;};
     std::vector<Result> operands;
-    unordered_map<int,shared_ptr<IRFormat>> neighbors;
+
+    void setRegNo(int arg){regNo = arg;};
+    int getRegNo(){return regNo;};
 
 private:
     int blkNo;
     int instNo;
+    int regNo;
     IROP ir_op;
+    int cost;
     shared_ptr<IRFormat> previousSameOpInst;
 
 };
@@ -235,5 +247,5 @@ std::vector<std::string> splitString(std::string stringToSplit);
 bool isBranchCond(IROP op);
 bool isSameOperand(Result x, Result y);
 bool isInnerBlock(BlockKind blkKind);
-
+bool isDefInstr(IROP op);
 #endif //ADV_COMPILER_HELPER_H

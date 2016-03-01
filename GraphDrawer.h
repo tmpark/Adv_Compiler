@@ -29,7 +29,7 @@ public:
     void writeCode(string codeString);
     void writeCodeForCond();
     void writeNodeEnd();
-    void writeEdge(int sourceNum, int targetNum, EDGETYPE edgeType);
+    void writeEdge(int sourceNum, int targetNum, EDGETYPE edgeType, GRAPHTYPE graphType);
     void writeEnd();
 
 private:

@@ -422,3 +422,9 @@ bool isInnerBlock(BlockKind blkKind)
 {
      return (blkKind == blk_while_body || blkKind == blk_if_then || blkKind == blk_if_else);
 }
+
+bool isDefInstr(IROP op)
+{
+    return op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp || op == IR_adda ||
+            op == IR_phi || op == IR_read;
+}

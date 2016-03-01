@@ -15,7 +15,7 @@ Parser :: Parser()
     //FIXME
     numOfSym = 0;
     numOfBlock = 0;
-    depth = 0;
+    loopDepth = 0;
     currentBlock = make_shared<BasicBlock> (0,blk_entry);
 }
 
@@ -96,7 +96,6 @@ void Parser::computation() {
         scopeStack.push("main"); //main function scope start
         vector<shared_ptr<BasicBlock>> emptyBasicBlockList;
         functionList.insert({"main",emptyBasicBlockList});
-        depth = 1; //main, function, procedure are considered level 1
 
         Next(); //Consume main
         while(isVarDecl(scannerSym))
@@ -289,17 +288,17 @@ void Parser::varDecl() {
     Scanner *scanner = Scanner::instance();
     if(isTypeDecl(scannerSym))
     {
-        Symbol x = typeDecl();
+        shared_ptr<Symbol> x = typeDecl();
         if(scannerSym == identToken)
         {
-            addVarSymbol(scanner->id,x.getSymType(),x.arrayCapacity);
+            addVarSymbol(scanner->id,x->getSymType(),x->arrayCapacity);
             Next();
             while(scannerSym == commaToken)
             {
                 Next(); // Consume comma
                 if(scannerSym == identToken) //Array do not allow multiple declaration. So it's just variable
                 {
-                    addVarSymbol(scanner->id,x.getSymType(),x.arrayCapacity);
+                    addVarSymbol(scanner->id,x->getSymType(),x->arrayCapacity);
                     Next();
                 }
                 else
@@ -320,18 +319,18 @@ void Parser::varDecl() {
         Error("varDecl",{"typeDecl"});
 }
 
-Symbol Parser::typeDecl() {
+shared_ptr<Symbol> Parser::typeDecl() {
 
     Scanner *scanner = Scanner::instance();
-    Symbol result;
+    shared_ptr<Symbol> result = make_shared<Symbol>();
     if(scannerSym == varToken)
     {
-        result.setSymType(sym_var); //Var type
+        result->setSymType(sym_var); //Var type
         Next(); //Consume var Token
     }
     else if(scannerSym == arrToken)
     {
-        result.setSymType(sym_array); // Array type
+        result->setSymType(sym_array); // Array type
         Next(); //Consume var Token
 
         if(scannerSym == openbracketToken)
@@ -339,7 +338,7 @@ Symbol Parser::typeDecl() {
             Next(); //Consume open bracket Token
             if(scannerSym == numberToken)
             {
-                result.arrayCapacity.push_back(scanner->number); // first dimension capacity
+                result->arrayCapacity.push_back(scanner->number); // first dimension capacity
                 Next();
                 if(scannerSym == closebracketToken)
                 {
@@ -349,7 +348,7 @@ Symbol Parser::typeDecl() {
                         Next(); //Consume open bracket Token
 
                         if (scannerSym == numberToken) {
-                            result.arrayCapacity.push_back(scanner->number); //subsequent dimension capacity
+                            result->arrayCapacity.push_back(scanner->number); //subsequent dimension capacity
                             Next();
                             if (scannerSym == closebracketToken) {
                                 Next();
@@ -462,6 +461,7 @@ void Parser::whileStatement() {
             int dominatingBlockNum = currentBlock->getBlockNum();
             int conditionBlockNum = dominatingBlockNum;
 
+            loopDepth++;//From condition block, instructions will loop
             x = relation(); //Result is instruction with relational operator
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
@@ -472,7 +472,6 @@ void Parser::whileStatement() {
 
             if(scannerSym == doToken)
             {
-                depth++;//depth increases
                 Next();
                 if(isStatSequence(scannerSym))
                 {
@@ -505,13 +504,14 @@ void Parser::whileStatement() {
                         updatePhiInBB(conditionBlockNum, phiCodes);
                         ssaBuilder.currentBlockKind.pop();
 
-                        depth--;
+
                         Fixup((unsigned long)x.getFixLoc()); //fix so that while branch here
                         ssaBuilder.endJoinBlock();
 
                         for(auto code : phiCodes)
                         {
                             //Phi is also kind of definition(defined kind: inst)
+
                             string targetOperand = code->operands.at(0).getVariable();
                             Result definedOperand;
                             definedOperand.setInst(code->getLineNo(),code);
@@ -524,6 +524,7 @@ void Parser::whileStatement() {
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
                         }
+                        loopDepth--;
                         //When completely out of while block, do the cse for load
                         if(ssaBuilder.currentBlockKind.empty() || ssaBuilder.currentBlockKind.top() != blk_while_body)
                             cseForLoad(dominatingBlockNum); // Do for for innner block
@@ -568,7 +569,6 @@ void Parser::ifStatement() {
                 Next();
                 follow.setKind(instKind);
                 follow.setFixLoc(0);
-                depth++; //in the then block depth increase
                 if(isStatSequence(scannerSym))
                 {
                     statSequence();
@@ -610,7 +610,6 @@ void Parser::ifStatement() {
                     }
                     currentBlock->setOuterBlockKind(outerBlockKind);
                     ssaBuilder.currentBlockKind.pop();
-                    depth--; // end of the then and depth decreases
                     //updateBlockForDT(dominatingBlockNum);//if.end block should be dominated by condition
 
                     if(scannerSym == fiToken)
@@ -671,9 +670,9 @@ Result Parser::funcCall() {
         if(scannerSym == identToken)
         {
             functionName = scanner->id;
-            Symbol functionSym = symTableLookup(functionName, sym_func);
-            numOfParam = functionSym.getNumOfParam(); //number of function parameter
-            locationOfFunc = functionSym.getBaseAddr();  //function location(instruction number)
+            shared_ptr<Symbol> functionSym = symTableLookup(functionName, sym_func);
+            numOfParam = functionSym->getNumOfParam(); //number of function parameter
+            locationOfFunc = functionSym->getBaseAddr();  //function location(instruction number)
             Next();
             if(scannerSym == openparenToken)
             {
@@ -915,7 +914,7 @@ Result Parser::designator() {
 
     if(scannerSym == identToken)
     {
-        Symbol symInfo = symTableLookup(scanner->id, sym_var);
+        shared_ptr<Symbol> symInfo = symTableLookup(scanner->id, sym_var);
         string variableName = scanner->id;
         x.setVariable(variableName);
 
@@ -930,7 +929,7 @@ Result Parser::designator() {
             {
                 if(i > 0) {
                     Result capacityOfArray;
-                    capacityOfArray.setConst(symInfo.arrayCapacity.at((unsigned long)i)); //current capacity
+                    capacityOfArray.setConst(symInfo->arrayCapacity.at((unsigned long)i)); //current capacity
                     updatedIndex = emitIntermediate(IR_mul,{updatedIndex,capacityOfArray});
                 }
                 Result tempIndex;
@@ -952,11 +951,11 @@ Result Parser::designator() {
                 Error("designator",{"expression"});
             i++;
         }
-        if(symInfo.getSymType() == sym_array)
+        if(symInfo->getSymType() == sym_array)
         {
             //x is array. So we have to provide address of x and index
-            Symbol xSymbol = symTableLookup(x.getVariable(), sym_array);
-            x.setConst(xSymbol.getBaseAddr());
+            shared_ptr<Symbol> xSymbol = symTableLookup(x.getVariable(), sym_array);
+            x.setConst(xSymbol->getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
             y.setReg(REG_FP);//Frame pointer
@@ -1035,12 +1034,14 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     ir_line->setBlkNo(currentBlock->getBlockNum());
     ir_line->setLineNo(IRpc);
     ir_line->setIROP(irOp);
+
     Result result;
     result.setInst(IRpc,ir_line);
     index = 0;
     instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
 
+    //Setting operands
     for(auto x_i : x) {
 
         if(x_i.getKind() == varKind)
@@ -1062,6 +1063,23 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
                 x_i.setVariable(definedInfo.getVar());
                 x_i.setDefInst(definedInfo.getDefinedInstOfVar());//previously defined instr
             }
+        }
+
+        //Cost setting
+        Kind operandKind = x_i.getKind();
+        if(operandKind == instKind)
+        {
+            shared_ptr<IRFormat> operandInst = x_i.getInst();
+            int cost = operandInst->getCost();
+            cost = cost + pow(10,loopDepth);
+            operandInst->setCost(cost);
+        }
+        else if(operandKind == varKind)
+        {
+            shared_ptr<Symbol> sym = symTableLookup(x_i.getVariable(),sym_var);
+            int cost = sym->getCost();
+            cost = cost + pow(10,loopDepth);
+            sym->setCost(cost);
         }
 
         ir_line->operands.push_back(x_i);
@@ -1214,7 +1232,7 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
                         edgeType = edge_false;
                     }
                 }
-                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType,graph_CFG);
             }
         }
         graphDrawer->writeEnd();
@@ -1258,7 +1276,7 @@ void Parser::createDominantGraph(const string &graphFolder,const string &sourceF
 
             for (auto dest : block->DTForwardEdges) {
                 EDGETYPE edgeType = edge_normal;
-                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType);
+                graphDrawer->writeEdge(block->getBlockNum(), dest->getBlockNum(), edgeType,graph_DT);
             }
         }
         graphDrawer->writeEnd();
@@ -1357,45 +1375,45 @@ void Parser::printSymbolTable()
         SymTable symtable = symTableIter.second;
         for(auto symIter : symtable.varSymbolList)
         {
-            Symbol sym = symIter.second;
-            SymType symType = sym.getSymType();
+            shared_ptr<Symbol> sym = symIter.second;
+            SymType symType = sym->getSymType();
 
             if(symType == sym_var)
             {
                 cout << "\t" << "var";
                 cout << " " << symIter.first;
-                cout << "\t" << "Base Address: " << sym.getBaseAddr();
+                cout << "\t" << "Base Address: " << sym->getBaseAddr();
             }
             else if(symType == sym_param)
             {
                 cout << "\t" << "param";
                 cout << " " << symIter.first;
-                cout << "\t" << "Base Address: " << sym.getBaseAddr();
+                cout << "\t" << "Base Address: " << sym->getBaseAddr();
             }
             else if(symType == sym_array)
             {
                 cout << "\t" << "array ";
-                for(auto cap : sym.arrayCapacity)
+                for(auto cap : sym->arrayCapacity)
                 {
                     cout << "[" << cap << "]";
                 }
                 cout << " " << symIter.first;
-                cout << "\t" << "Base Address: " << sym.getBaseAddr();
+                cout << "\t" << "Base Address: " << sym->getBaseAddr();
             }
 
             else if(symType == sym_func)
             {
                 cout << "\t" << "function";
                 cout << "\t" << symIter.first;
-                cout << "\t" << "Base Address: " << sym.getBaseAddr();
-                cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
+                cout << "\t" << "Base Address: " << sym->getBaseAddr();
+                cout << "\t" << "Number of Parameters: " << sym->getNumOfParam();
             }
             else if(symType == sym_proc)
             {
                 cout << "\t" << "procedure";
                 cout << "\t" << symIter.first;
-                cout << "\t" << "Base Address: " << sym.getBaseAddr();
-                cout << "\t" << "Number of Parameters: " << sym.getNumOfParam();
+                cout << "\t" << "Base Address: " << sym->getBaseAddr();
+                cout << "\t" << "Number of Parameters: " << sym->getNumOfParam();
             }
 
             cout << endl;
@@ -1434,7 +1452,7 @@ void Parser :: addFuncSymbol(SymType symType, std::string symbolName, unsigned l
 
 
     //Make symbol
-    Symbol functionSymbol(symType,IRpc,(int)numOfParam);
+    shared_ptr<Symbol> functionSymbol(new Symbol(symType,IRpc,(int)numOfParam));
     //insert this symbol to symbol table.
     parentSymTable->funcSymbolList.insert({symbolName, functionSymbol});
 
@@ -1463,7 +1481,7 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
     SymTable *currentSymTable = &symTableIter->second;
     int localVarTop = currentSymTable->getLocalVarTop() - varSize;//move go downwards
     //Make symbol
-    Symbol newSymbol(symType,localVarTop,arrayCapacity);
+    shared_ptr<Symbol> newSymbol(new Symbol(symType,localVarTop,arrayCapacity));
 
     //Update symtable
     currentSymTable->varSymbolList.insert({symbol, newSymbol});
@@ -1483,13 +1501,13 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
     }
     SymTable *currentSymTable = &symTableIter->second;
     //Make symbol
-    Symbol newSymbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index);
+    shared_ptr<Symbol> newSymbol(new Symbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index));
 
     //Update symtable
     currentSymTable->varSymbolList.insert({symbol, newSymbol});
 }
 
-void Parser:: symbolTableUpdate(string var,Symbol varSym)
+void Parser:: symbolTableUpdate(string var,shared_ptr<Symbol> varSym)
 {
     string currentScope = scopeStack.top();
     while(currentScope != "")
@@ -1508,9 +1526,8 @@ void Parser:: symbolTableUpdate(string var,Symbol varSym)
 
 
 
-Symbol Parser:: symTableLookup(std::string symbol,SymType symType)
+shared_ptr<Symbol> Parser:: symTableLookup(std::string symbol,SymType symType)
 {
-    Symbol nullInfo;
     string currentScope = scopeStack.top();
 
     while(currentScope != "")
@@ -1519,12 +1536,12 @@ Symbol Parser:: symTableLookup(std::string symbol,SymType symType)
         if(currentSymTableIter == symTableList.end())
         {
             std::cerr << "Current scope is not valid" << std::endl;
-            return nullInfo;
+            return NULL;
         }
 
 
         SymTable currentSymTable = currentSymTableIter->second;
-        unordered_map<string,Symbol> symbolList;
+        unordered_map<string,shared_ptr<Symbol>> symbolList;
 
         //Distinguish varsym and funcsym
         if(symType == sym_var || symType == sym_param || symType == sym_array)
@@ -1542,7 +1559,7 @@ Symbol Parser:: symTableLookup(std::string symbol,SymType symType)
 
     std::cerr << "There is no symbol like " << symbol << std::endl;
 
-    return nullInfo; //There is no symbol
+    return NULL; //There is no symbol
 }
 
 
@@ -1797,17 +1814,28 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
                         if (defJustBeforeKind == operand.getKind()) {
                             switch (defJustBeforeKind) {
                                 case constKind:
-                                    if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar())
-                                        operand.setInst(phiCode->getLineNo(),phiCode);
+                                    if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()) {
+                                        int cost = phiCode->getCost();
+                                        phiCode->setCost(cost + pow(10,loopDepth));
+                                        operand.setInst(phiCode->getLineNo(), phiCode);
+                                    }
                                     break;
                                 case varKind:
                                     if (defJustBefore.getVariable() == operand.getVariable() &&
-                                        defJustBefore.getDefInst() == operand.getDefInst())
+                                        defJustBefore.getDefInst() == operand.getDefInst()){
+                                        int cost = phiCode->getCost();
+                                        phiCode->setCost(cost + pow(10,loopDepth));
                                         operand.setInst(phiCode->getLineNo(),phiCode);
+                                    }
+
                                     break;
                                 case instKind:
                                     if (defJustBefore.getInstNum() == operand.getInstNum())
+                                    {
+                                        int cost = phiCode->getCost();
+                                        phiCode->setCost(cost + pow(10,loopDepth));
                                         operand.setInst(phiCode->getLineNo(),phiCode);
+                                    }
                                     break;
                             }
 
@@ -1825,17 +1853,31 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
                     if (defJustBeforeKind == operand.getKind()) {
                         switch (defJustBeforeKind) {
                             case constKind:
-                                if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar())
+                                if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()){
+                                    int cost = phiCode->getCost();
+                                    phiCode->setCost(cost + pow(10,loopDepth));
                                     operand.setInst(phiCode->getLineNo(),phiCode);
+                                }
+
                                 break;
                             case varKind:
                                 if (defJustBefore.getVariable() == operand.getVariable() &&
                                     defJustBefore.getDefInst() == operand.getDefInst())
+                                {
+                                    int cost = phiCode->getCost();
+                                    phiCode->setCost(cost + pow(10,loopDepth));
                                     operand.setInst(phiCode->getLineNo(),phiCode);
+                                }
+
                                 break;
                             case instKind:
                                 if (defJustBefore.getInstNum() == operand.getInstNum())
+                                {
+                                    int cost = phiCode->getCost();
+                                    phiCode->setCost(cost + pow(10,loopDepth));
                                     operand.setInst(phiCode->getLineNo(),phiCode);
+                                }
+
                                 break;
                         }
 

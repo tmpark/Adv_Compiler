@@ -31,7 +31,7 @@ int main() {
     //Test26 -> CSE Test
 
     //1~35
-    for(int i = 9 ; i < 10 ; i++)
+    for(int i = 1 ; i < 35 ; i++)
     {
         if(i == 4)
             continue;
@@ -66,6 +66,7 @@ int main() {
         std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList = parser->getFuncList();
         for(auto function : functionList)
         {
+            int numOfRegs = 8;
             RegAllocation regAlloc(function.second);
             regAlloc.doRegAllocation();
             regAlloc.createInterferenceGraph(graphFolder+sourceFileName + "/",sourceFileName,function.first);
