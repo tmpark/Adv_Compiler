@@ -9,34 +9,51 @@
 
 class Node{
 public:
-    Node(int arg0, Kind arg1, shared_ptr<IRFormat> arg2){nodeNum=arg0;nodeKind = instKind; inst = arg2;varCost = 0;coloredReg = -1;};
-    Node(int arg0, Kind arg1, string arg2){nodeNum=arg0;nodeKind = varKind; var = arg2;varCost = 0;coloredReg = -1;};
+    Node(int arg0,  shared_ptr<IRFormat> arg2){nodeNum=arg0;nodeKind = instKind; inst = arg2;coloredReg = -1;};
+    Node(int arg0,  string arg2, shared_ptr<Symbol> sym){nodeNum=arg0;nodeKind = varKind; var = arg2;coloredReg = -1;varSym = sym;};
     unordered_map<int,shared_ptr<Node>> neighbors;
     Kind getKind(){return nodeKind;};
     int getNodeNum(){return nodeNum;};
-    int getCost(){return (nodeKind == instKind) ? inst->getCost() : varCost;};
-    void setColor(int arg){coloredReg = arg;
-        if(arg < NUM_OF_DATA_REGS)
-            inst->setRegNo(arg + REG_DATA);
-        else
-            inst->setRegNo(arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
+    int getCost(){return (nodeKind == instKind) ? inst->getCost() : varSym->getCost();};
+    void setReg(int arg){ coloredReg = arg;
+        if(arg < NUM_OF_DATA_REGS) {
+            if (nodeKind == instKind)
+                inst->setRegNo(arg + REG_DATA);
+            else if (nodeKind == varKind)
+                varSym->setReg(arg + REG_DATA);
+        }
+        else {
+            if(nodeKind == instKind)
+                inst->setRegNo(arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
+            else if(nodeKind == varKind)
+                varSym->setReg(arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
+        }
     };
-    int getColor(){return coloredReg;};
+    int getReg(){return coloredReg;};
+    int getAssignedReg() {
+        if (coloredReg < NUM_OF_DATA_REGS)
+            return coloredReg + REG_DATA;
+        else
+            return coloredReg - NUM_OF_DATA_REGS + REG_VIRTUAL;
+    }
+    string getVarNodeName(){return var;};
+    shared_ptr<IRFormat> getInst(){return inst;};
 
 
 private:
     int nodeNum;
     Kind nodeKind;//Only inst and var kind
     shared_ptr<IRFormat> inst;
+
     string var;
-    int varCost;
+    shared_ptr<Symbol> varSym;
     int coloredReg;
 };
 
 class RegAllocation {
 
 public:
-    RegAllocation(vector<shared_ptr<BasicBlock>> blocks){this->blocks = blocks;numOfNodes = 0;nextVirReg = REG_VIRTUAL;};
+    RegAllocation(string functionName,vector<shared_ptr<BasicBlock>> blocks, const int numOfVars);
     void doRegAllocation();
     void createInterferenceGraph(const string &graphFolder,const string &sourceFileName, string functionName);
 
@@ -48,9 +65,11 @@ private:
     void getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet,vector<shared_ptr<IRFormat>> codes);
     void getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index);
 
-    int numOfNodes;
+    int numOfVarNodes;
     vector<bool> regMapTemplate;
     unordered_map<int,shared_ptr<Node>> nodeList;
+    int instNodeStart;
+    string functionName;
 
 };
 

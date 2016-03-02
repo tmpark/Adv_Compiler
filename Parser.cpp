@@ -512,14 +512,15 @@ void Parser::whileStatement() {
                         {
                             //Phi is also kind of definition(defined kind: inst)
 
-                            string targetOperand = code->operands.at(0).getVariable();
+                            string targetOperand = code->operands.at(0).getVariableName();
+                            shared_ptr<Symbol> targetOperandSym = code->operands.at(0).getVarSym();
                             Result definedOperand;
-                            definedOperand.setInst(code->getLineNo(),code);
+                            definedOperand.setInst(code);
 
                             DefinedInfo defInfo(currentBlock->getBlockNum(),targetOperand);
                             defInfo.setInst(code->getLineNo(),code);
 
-                            ssaBuilder.prepareForProcess(targetOperand, defInfo);
+                            ssaBuilder.prepareForProcess(targetOperand,targetOperandSym, defInfo);
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
@@ -624,14 +625,16 @@ void Parser::ifStatement() {
                             currentBlock->phiCodes.push_back(code);//contents of join block is copied
 
                             //Phi is also kind of definition(defined kind: inst)
-                            string targetOperand = code->operands.at(0).getVariable();
+                            string targetOperand = code->operands.at(0).getVariableName();
+                            shared_ptr<Symbol> targetOperandSym = code->operands.at(0).getVarSym();
+
                             Result definedOperand;
-                            definedOperand.setInst(code->getLineNo(), code);
+                            definedOperand.setInst(code);
 
                             DefinedInfo defInfo(currentBlock->getBlockNum(),targetOperand);
                             defInfo.setInst(code->getLineNo(),code);
 
-                            ssaBuilder.prepareForProcess(targetOperand, defInfo);
+                            ssaBuilder.prepareForProcess(targetOperand, targetOperandSym,defInfo);
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
@@ -670,7 +673,7 @@ Result Parser::funcCall() {
         if(scannerSym == identToken)
         {
             functionName = scanner->id;
-            shared_ptr<Symbol> functionSym = symTableLookup(functionName, sym_func);
+            shared_ptr<Symbol> functionSym = symTableLookup(scopeStack.top(),functionName, sym_func);
             numOfParam = functionSym->getNumOfParam(); //number of function parameter
             locationOfFunc = functionSym->getBaseAddr();  //function location(instruction number)
             Next();
@@ -765,7 +768,7 @@ Result Parser::assignment() {
                     else {
                         result = emitIntermediate(IR_move, {y,x});
                         //No move instruction more, but return y:which is x(variable)'s phi updated value
-                        emitOrUpdatePhi(x.getVariable(), result);//For variable x
+                        emitOrUpdatePhi(x.getVariableName(), result);//For variable x
                     }
                 }
                 else
@@ -914,9 +917,9 @@ Result Parser::designator() {
 
     if(scannerSym == identToken)
     {
-        shared_ptr<Symbol> symInfo = symTableLookup(scanner->id, sym_var);
+        shared_ptr<Symbol> symInfo = symTableLookup(scopeStack.top(),scanner->id, sym_var);
         string variableName = scanner->id;
-        x.setVariable(variableName);
+        x.setVariable(variableName,symInfo);
 
         Next();
 
@@ -954,7 +957,7 @@ Result Parser::designator() {
         if(symInfo->getSymType() == sym_array)
         {
             //x is array. So we have to provide address of x and index
-            shared_ptr<Symbol> xSymbol = symTableLookup(x.getVariable(), sym_array);
+            shared_ptr<Symbol> xSymbol = symTableLookup(scopeStack.top(), x.getVariableName(), sym_array);
             x.setConst(xSymbol->getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
@@ -993,36 +996,39 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 
     if(irOp == IR_move) //Copy Propagation : every move should be replaced by first operand
     {
-        string defVar = x.at(1).getVariable();
+        string defVar = x.at(1).getVariableName();
+        shared_ptr<Symbol> defVarSym= x.at(1).getVarSym();
         DefinedInfo defInfo(currentBlock->getBlockNum(),defVar);
 
         Kind definedKind = x.at(0).getKind();
         Result propagatedResult = x.at(0);
 
         if(definedKind == instKind)
-            defInfo.setInst(x.at(0).getInstNum(),x.at(0).getInst());
+            defInfo.setInst(x.at(0).getInst()->getLineNo(),x.at(0).getInst());
         else if(definedKind == varKind) {
 
             DefinedInfo defInfoOfDef;
-            ssaBuilder.prepareForProcess(propagatedResult.getVariable(),defInfoOfDef);
+            ssaBuilder.prepareForProcess(propagatedResult.getVariableName(),propagatedResult.getVarSym(), defInfoOfDef);
             defInfoOfDef = ssaBuilder.getDefinedInfo();
             //propagated only from other variable(trace until initialization)
             Kind kind =defInfoOfDef.getKind();
             if(kind == constKind)
                 propagatedResult.setConst(defInfoOfDef.getConst());
             else if(kind == instKind)
-                propagatedResult.setInst(defInfoOfDef.getInstNum(),defInfoOfDef.getInst());
+                propagatedResult.setInst(defInfoOfDef.getInst());
             else if(kind == varKind) {
-                propagatedResult.setVariable(defInfoOfDef.getVar());
+                string varName = defInfoOfDef.getVar();
+                shared_ptr<Symbol> varSym = defInfoOfDef.getVarSym();
+                propagatedResult.setVariable(varName, varSym);
                 propagatedResult.setDefInst(defInfoOfDef.getDefinedInstOfVar());
             }
 
-            defInfo = defInfoOfDef;//setVar(x.at(0).getVariable(), defInfoOfDef.getDefinedInstOfVar());
+            defInfo = defInfoOfDef;//setVar(x.at(0).getVariableName(), defInfoOfDef.getDefinedInstOfVar());
         }
         else if(definedKind == constKind)
             defInfo.setConst(x.at(0).getConst());
 
-        ssaBuilder.prepareForProcess(defVar, defInfo);
+        ssaBuilder.prepareForProcess(defVar, defVarSym,defInfo);
         ssaBuilder.insertDefinedInstr();
 
         return propagatedResult;
@@ -1036,7 +1042,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     ir_line->setIROP(irOp);
 
     Result result;
-    result.setInst(IRpc,ir_line);
+    result.setInst(ir_line);
     index = 0;
     instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
@@ -1046,21 +1052,23 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 
         if(x_i.getKind() == varKind)
         {
-            string var = x_i.getVariable();
-            //Symbol varSym = symTableLookup(var);
+            string var = x_i.getVariableName();
+            shared_ptr<Symbol> varSym = x_i.getVarSym();
 
             DefinedInfo definedInfo;
-            ssaBuilder.prepareForProcess(var, definedInfo);
+            ssaBuilder.prepareForProcess(var,varSym, definedInfo);
             definedInfo = ssaBuilder.getDefinedInfo();
             if(definedInfo.getKind() == instKind)
-                x_i.setInst(definedInfo.getInstNum(), definedInfo.getInst());
+                x_i.setInst(definedInfo.getInst());
             else if(definedInfo.getKind() == constKind) {
                 x_i.setConst(definedInfo.getConst());
                 x_i.setConstPropVar(var);
             }
             else if(definedInfo.getKind() == varKind)
             {
-                x_i.setVariable(definedInfo.getVar());
+                string varName = definedInfo.getVar();
+                shared_ptr<Symbol> varSym = definedInfo.getVarSym();
+                x_i.setVariable(varName,varSym);
                 x_i.setDefInst(definedInfo.getDefinedInstOfVar());//previously defined instr
             }
         }
@@ -1076,7 +1084,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
         }
         else if(operandKind == varKind)
         {
-            shared_ptr<Symbol> sym = symTableLookup(x_i.getVariable(),sym_var);
+            shared_ptr<Symbol> sym = symTableLookup(scopeStack.top(), x_i.getVariableName(), sym_var);
             int cost = sym->getCost();
             cost = cost + pow(10,loopDepth);
             sym->setCost(cost);
@@ -1107,7 +1115,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
             shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
             if(existingCommonSub != NULL) {
                 Result returnedVal;
-                returnedVal.setInst(existingCommonSub->getLineNo(),existingCommonSub);
+                returnedVal.setInst(existingCommonSub);
                 return returnedVal;
             }
         }
@@ -1149,8 +1157,15 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 
 string Parser :: getCodeString(shared_ptr<IRFormat> code)
 {
+    string lineString;
+    int regForCode = code->getRegNo();
+    if(regForCode == -1)
+        lineString = to_string(code->getLineNo());
+    else
+        lineString = "%" + to_string(regForCode);
+
     string tab = "  ";
-    string result = to_string(code->getLineNo()) + tab + getIROperatorString(code->getIROP());
+    string result = lineString + tab + getIROperatorString(code->getIROP());
     int index = 0;
     for(auto operand : code->operands)
     {
@@ -1163,11 +1178,23 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
         }
         else if (operand.getKind() == varKind)
         {
-            result = result + tab + operand.getVariable()+"_"+to_string(operand.getDefInst());// << "\t";
+            shared_ptr<Symbol> varSym = operand.getVarSym();
+            int regNo = varSym->getReg();
+            if(regNo == -1)
+                result = result + tab + operand.getVariableName() + "_" + to_string(operand.getDefInst());// << "\t";
+            else
+                result = result + tab + "%" + to_string(regNo);
         }
         else if(operand.getKind() == instKind) //Result of that instruction
         {
-            result = result + tab + "(" + to_string(operand.getInstNum()) + ")";// << "\t";
+            shared_ptr<IRFormat> inst = operand.getInst();
+            int regNo = inst->getRegNo();
+            //still not allocated a register
+            if(regNo == -1)
+                result = result + tab + "(" + to_string(inst->getLineNo()) + ")";// << "\t";
+                //After register allocation
+            else
+                result = result + tab + "%" + to_string(regNo);
         }
         else if(operand.getKind() == blockKind) //Result of that instruction
         {
@@ -1186,13 +1213,13 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
 }
 
 
-void Parser::createControlFlowGraph(const string &graphFolder,const string &sourceFileName)
+void Parser::createControlFlowGraph(const string &graphFolder,const string &sourceFileName,const string version)
 {
     string formatName = ".dot";
     RC rc = -1;
     for(auto function : functionList) {
         string functionName = function.first;
-        string fileName = graphFolder + "CFG_"+ sourceFileName+ "_" + functionName + formatName;
+        string fileName = graphFolder + "CFG_"+version+"_" + sourceFileName+ "_" + functionName + formatName;
 
         GraphDrawer *graphDrawer = GraphDrawer::instance();
         rc = graphDrawer->createFile(fileName);
@@ -1340,11 +1367,11 @@ void Parser::printIRCodes(vector<shared_ptr<IRFormat>> codes)
             }
             else if (operand.getKind() == varKind)
             {
-                std::cout << operand.getVariable() << "_" << operand.getDefInst();// << "\t";
+                std::cout << operand.getVariableName() << "_" << operand.getDefInst();// << "\t";
             }
             else if(operand.getKind() == instKind) //Result of that instruction
             {
-                std::cout << "(" << operand.getInstNum() << ")";// << "\t";
+                std::cout << "(" << operand.getInst()->getLineNo() << ")";// << "\t";
             }
             else if(operand.getKind() == blockKind) //Result of that instruction
             {
@@ -1484,7 +1511,7 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
     shared_ptr<Symbol> newSymbol(new Symbol(symType,localVarTop,arrayCapacity));
 
     //Update symtable
-    currentSymTable->varSymbolList.insert({symbol, newSymbol});
+    currentSymTable->insertVarSym(symbol,newSymbol);
 
     currentSymTable->setLocalVarTop(localVarTop);
 
@@ -1504,7 +1531,7 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
     shared_ptr<Symbol> newSymbol(new Symbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index));
 
     //Update symtable
-    currentSymTable->varSymbolList.insert({symbol, newSymbol});
+    currentSymTable->insertVarSym(symbol,newSymbol);
 }
 
 void Parser:: symbolTableUpdate(string var,shared_ptr<Symbol> varSym)
@@ -1526,13 +1553,13 @@ void Parser:: symbolTableUpdate(string var,shared_ptr<Symbol> varSym)
 
 
 
-shared_ptr<Symbol> Parser:: symTableLookup(std::string symbol,SymType symType)
+shared_ptr<Symbol> Parser:: symTableLookup(string scope, std::string symbol,SymType symType)
 {
-    string currentScope = scopeStack.top();
+    //string scope = scopeStack.top();
 
-    while(currentScope != "")
+    while(scope != "")
     {
-        auto currentSymTableIter = symTableList.find(currentScope);
+        auto currentSymTableIter = symTableList.find(scope);
         if(currentSymTableIter == symTableList.end())
         {
             std::cerr << "Current scope is not valid" << std::endl;
@@ -1553,7 +1580,7 @@ shared_ptr<Symbol> Parser:: symTableLookup(std::string symbol,SymType symType)
         if(symIter != symbolList.end())
             return symIter->second;
 
-        currentScope = currentSymTable.getParent();
+        scope = currentSymTable.getParent();
     }
 
 
@@ -1775,13 +1802,15 @@ bool Parser:: isDominate(int dominatingBlockNum, int dominatedBlockNum)
 
 void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If x is variable and the current block is condition update phi function
 
+    shared_ptr<Symbol> x_sym = symTableLookup(scopeStack.top(),x,sym_var);
     if (ssaBuilder.currentBlockKind.empty())//Currently not in the then, else block
         return;
 
     if (ssaBuilder.currentBlockKind.top() == blk_if_then)//left operand of phi should be modified
     {
         //Operand index 1 should be changed
-        shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x,defined, 1, IRpc);
+
+        shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x,x_sym,defined, 1, IRpc);
         if (irCode != NULL) {
             IRCodes.push_back(irCode);
             IRpc++;
@@ -1790,14 +1819,14 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
     else if (ssaBuilder.currentBlockKind.top() == blk_if_else)//right opernad of phi should be modified
     {
         //Operand index 2 should be changed
-        shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x,defined, 2, IRpc);
+        shared_ptr<IRFormat> irCode = ssaBuilder.updatePhiFunction(x,x_sym,defined, 2, IRpc);
         if (irCode != NULL) {
             IRCodes.push_back(irCode);
             IRpc++;
         }
     }
     else if (ssaBuilder.currentBlockKind.top() == blk_while_body) {
-        shared_ptr<IRFormat> phiCode = ssaBuilder.updatePhiFunction(x,defined, 2, IRpc);
+        shared_ptr<IRFormat> phiCode = ssaBuilder.updatePhiFunction(x,x_sym,defined, 2, IRpc);
         if (phiCode != NULL) { //there is new phi
             //Between assignment variables in blk_while_body and blk_while_cond are now defined in phi
             int conditionBlockNum = ssaBuilder.getCurrentJoinBlockNum();
@@ -1817,24 +1846,24 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
                                     if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()) {
                                         int cost = phiCode->getCost();
                                         phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode->getLineNo(), phiCode);
+                                        operand.setInst(phiCode);
                                     }
                                     break;
                                 case varKind:
-                                    if (defJustBefore.getVariable() == operand.getVariable() &&
+                                    if (defJustBefore.getVariableName() == operand.getVariableName() &&
                                         defJustBefore.getDefInst() == operand.getDefInst()){
                                         int cost = phiCode->getCost();
                                         phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode->getLineNo(),phiCode);
+                                        operand.setInst(phiCode);
                                     }
 
                                     break;
                                 case instKind:
-                                    if (defJustBefore.getInstNum() == operand.getInstNum())
+                                    if (defJustBefore.getInst()->getLineNo() == operand.getInst()->getLineNo())
                                     {
                                         int cost = phiCode->getCost();
                                         phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode->getLineNo(),phiCode);
+                                        operand.setInst(phiCode);
                                     }
                                     break;
                             }
@@ -1856,26 +1885,26 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
                                 if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()){
                                     int cost = phiCode->getCost();
                                     phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode->getLineNo(),phiCode);
+                                    operand.setInst(phiCode);
                                 }
 
                                 break;
                             case varKind:
-                                if (defJustBefore.getVariable() == operand.getVariable() &&
+                                if (defJustBefore.getVariableName() == operand.getVariableName() &&
                                     defJustBefore.getDefInst() == operand.getDefInst())
                                 {
                                     int cost = phiCode->getCost();
                                     phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode->getLineNo(),phiCode);
+                                    operand.setInst(phiCode);
                                 }
 
                                 break;
                             case instKind:
-                                if (defJustBefore.getInstNum() == operand.getInstNum())
+                                if (defJustBefore.getInst()->getLineNo() == operand.getInst()->getLineNo())
                                 {
                                     int cost = phiCode->getCost();
                                     phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode->getLineNo(),phiCode);
+                                    operand.setInst(phiCode);
                                 }
 
                                 break;
@@ -1905,7 +1934,7 @@ void Parser::cseForLoad(int dominatingBlockNum) {
             if(storeInst->getIROP() == IR_store)
             {
                 //Must be killed
-                if(loadInst->operands.at(0).getVariable() == storeInst->operands.at(1).getVariable()) {
+                if(loadInst->operands.at(0).getVariableName() == storeInst->operands.at(1).getVariableName()) {
                     cseAvail = false;
                     break;
                 }
@@ -1937,8 +1966,9 @@ void Parser::cseForLoad(int dominatingBlockNum) {
             for(auto loadAvail : loadsCSEAvail)
             {
                 for (auto &operand : irCode->operands) {
-                    if(loadAvail->getLineNo() == operand.getInstNum())
-                        operand.setInst(loadAvail->getPreviousSameOpInst()->getLineNo(),loadAvail->getPreviousSameOpInst());
+
+                    if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
+                        operand.setInst(loadAvail->getPreviousSameOpInst());
                 }
             }
         }
@@ -1948,8 +1978,8 @@ void Parser::cseForLoad(int dominatingBlockNum) {
             for (auto &operand : irCode->operands) {
                 for(auto loadAvail : loadsCSEAvail)
                 {
-                    if(loadAvail->getLineNo() == operand.getInstNum())
-                        operand.setInst(loadAvail->getPreviousSameOpInst()->getLineNo(),loadAvail->getPreviousSameOpInst());
+                    if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
+                        operand.setInst(loadAvail->getPreviousSameOpInst());
                 }
             }
         }

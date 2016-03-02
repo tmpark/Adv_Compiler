@@ -4,11 +4,13 @@
 
 #include "RegAllocation.h"
 
-RegAllocation :: RegAllocation(vector<shared_ptr<BasicBlock>> blocks)
+RegAllocation :: RegAllocation(string functionName,vector<shared_ptr<BasicBlock>> blocks, const int numOfVars)
 {
+    instNodeStart = numOfVars;
     this->blocks = blocks;
-    numOfNodes = 0;
-    for(int i = 0 ; i < NUM_OF_DATA_REGS ; i++)
+    numOfVarNodes = 0;
+    this->functionName = functionName;
+    for(int i = 0 ; i < MAX_NUMS_OF_REGS ; i++)
         regMapTemplate.push_back(false);
 }
 
@@ -23,6 +25,7 @@ void RegAllocation::doRegAllocation()
 {
     unordered_map<int,shared_ptr<Node>> liveSet;
     buildInterfGraph(blocks.at(0),liveSet);
+    Coloring();
 }
 
 void RegAllocation::Coloring()
@@ -72,7 +75,7 @@ void RegAllocation::Coloring()
     {
         shared_ptr<Node> neighbor = neighborIter.second;
         neighbor->neighbors.insert({targetNodeNum,targetNode});
-        int coloredReg = neighbor->getColor();
+        int coloredReg = neighbor->getReg();
         if(coloredReg != -1)
             registerMap.at((unsigned long)coloredReg) = true;
     }
@@ -83,7 +86,7 @@ void RegAllocation::Coloring()
     {
         if(!occupied)
         {
-            targetNode->setColor(index);
+            targetNode->setReg(index);
             return;
         }
         index++;
@@ -159,41 +162,71 @@ void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unord
 
 void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes)
 {
+    Parser *parser = Parser::instance();
     auto rit = codes.rbegin();
     for(; rit != codes.rend(); ++rit)
     {
         shared_ptr<IRFormat> code = *rit;
-
-        int instNum = code->getLineNo();
-        auto nodeIter = nodeList.find(instNum);
+        int nodeNum = instNodeStart+code->getLineNo();
+        auto nodeIter = nodeList.find(nodeNum);
         shared_ptr<Node> node;
-        if(nodeIter == nodeList.end())
-        {
-            node = std::make_shared<Node>(instNum,instKind,code);
-            nodeList.insert({instNum, node});
-        }
-        else
-            node = nodeIter->second;
 
-        liveSet.erase(code->getLineNo());
         if(isDefInstr(code->getIROP())) {
+            if(nodeIter == nodeList.end())
+            {
+                node = std::make_shared<Node>(nodeNum, code);
+                nodeList.insert({nodeNum, node});
+            }
+            else
+                node = nodeIter->second;
+
+            liveSet.erase(nodeNum);
+
             for (auto liveEntry : liveSet)
                 makeEdge(node, liveEntry.second);
         }
         for(auto operand : code->operands)
         {
-            if(operand.getKind() == instKind) {
+            Kind operandKind = operand.getKind();
+            if(operandKind == instKind) {
                 shared_ptr<IRFormat> inst = operand.getInst();
-                instNum = inst->getLineNo();
-                nodeIter = nodeList.find(instNum);
+                nodeNum = instNodeStart + inst->getLineNo();
+                nodeIter = nodeList.find(nodeNum);
                 if(nodeIter == nodeList.end())
                 {
-                    node = std::make_shared<Node>(instNum,instKind,inst);
-                    nodeList.insert({instNum, node});
+                    node = std::make_shared<Node>(nodeNum,  inst);
+                    nodeList.insert({nodeNum, node});
                 }
                 else
                     node = nodeIter->second;
-                liveSet.insert({instNum,node});
+                liveSet.insert({nodeNum, node});
+            }
+            else if(operandKind == varKind)
+            {
+                string varName = operand.getVariableName();
+                //If there is no node for that symbol
+                shared_ptr<Node> candidateNode = NULL;
+                for(int i = 0 ; i < numOfVarNodes ; i++)
+                {
+                    auto varNodeIter = nodeList.find(i);
+                    if(nodeList.end() != varNodeIter)
+                    {
+                        candidateNode = varNodeIter->second;
+                        if(varName == candidateNode->getVarNodeName())
+                            break;
+                        candidateNode = NULL;
+                    }
+                }
+                if(candidateNode == NULL)
+                {
+                    shared_ptr<Symbol> sym = parser->symTableLookup(functionName,varName,sym_var);
+                    node = std::make_shared<Node>(numOfVarNodes, varName,sym);
+                    nodeList.insert({numOfVarNodes, node});
+                    numOfVarNodes++;
+                }
+                else
+                    node = candidateNode;
+                liveSet.insert({node->getNodeNum(),node});
             }
         }
     }
@@ -201,40 +234,69 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
 
 void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index)
 {
+    Parser *parser = Parser::instance();
     auto rit = codes.rbegin();
     for(; rit != codes.rend(); ++rit)
     {
         shared_ptr<IRFormat> code = *rit;
 
-        int instNum = code->getLineNo();
-        auto nodeIter = nodeList.find(instNum);
+        int nodeNum = instNodeStart+code->getLineNo();
+        auto nodeIter = nodeList.find(nodeNum);
         shared_ptr<Node> node;
         if(nodeIter == nodeList.end())
         {
-            node = std::make_shared<Node>(instNum,instKind,code);
-            nodeList.insert({instNum, node});
+            node = std::make_shared<Node>(nodeNum, code);
+            nodeList.insert({nodeNum, node});
         }
         else
             node = nodeIter->second;
 
-        liveSet.erase(instNum);
+        liveSet.erase(nodeNum);
         if(isDefInstr(code->getIROP())){
             for(auto liveEntry : liveSet)
                 makeEdge(node,liveEntry.second);
         }
         Result operand = code->operands.at((unsigned long)index);
-        if(operand.getKind() == instKind) {
+        Kind operandKind = operand.getKind();
+        if(operandKind == instKind) {
             shared_ptr<IRFormat> inst = operand.getInst();
-            instNum = inst->getLineNo();
-            nodeIter = nodeList.find(instNum);
+            nodeNum = instNodeStart+ inst->getLineNo();
+            nodeIter = nodeList.find(nodeNum);
             if(nodeIter == nodeList.end())
             {
-                node = std::make_shared<Node>(instNum,instKind,inst);
-                nodeList.insert({instNum, node});
+                node = std::make_shared<Node>(nodeNum,  inst);
+                nodeList.insert({nodeNum, node});
             }
             else
                 node = nodeIter->second;
-            liveSet.insert({instNum,node});
+            liveSet.insert({nodeNum, node});
+        }
+        else if(operandKind == varKind)
+        {
+            string varName = operand.getVariableName();
+            //If there is no node for that symbol
+            shared_ptr<Node> candidateNode = NULL;
+            for(int i = 0 ; i < numOfVarNodes ; i++)
+            {
+                auto varNodeIter = nodeList.find(i);
+                if(nodeList.end() != varNodeIter)
+                {
+                    candidateNode = varNodeIter->second;
+                    if(varName == candidateNode->getVarNodeName())
+                        break;
+                    candidateNode = NULL;
+                }
+            }
+            if(candidateNode == NULL)
+            {
+                shared_ptr<Symbol> sym = parser->symTableLookup(functionName,varName,sym_var);
+                node = std::make_shared<Node>(numOfVarNodes, varName,sym);
+                nodeList.insert({numOfVarNodes, node});
+                numOfVarNodes++;
+            }
+            else
+                node = candidateNode;
+            liveSet.insert({node->getNodeNum(),node});
         }
     }
 }
@@ -266,7 +328,20 @@ void RegAllocation::createInterferenceGraph(const string &graphFolder,const stri
         string costString = "Cost of " + to_string(cost);
         graphDrawer->writeNodeStart(nodeNum,costString);
         //string codeString = parser->getCodeString(node);
-        //graphDrawer->writeCode(codeString);
+        Kind nodeKind = node->getKind();
+        if(nodeKind == instKind)
+        {
+            shared_ptr<IRFormat> inst = node->getInst();
+            string codeString = "R" + to_string(node->getAssignedReg()) + "::" +parser->getCodeString(inst);
+            graphDrawer->writeCode(codeString);
+        }
+        else if(nodeKind == varKind)
+        {
+            string var = node->getVarNodeName();
+            string codeString = "R" + to_string(node->getAssignedReg()) + "::" +var;
+            graphDrawer->writeCode(codeString);
+        }
+
         graphDrawer->writeNodeEnd();
         for (auto dest : node->neighbors) {
             EDGETYPE edgeType = edge_normal;

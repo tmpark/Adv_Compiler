@@ -402,9 +402,9 @@ bool isSameOperand(Result x, Result y){
             case constKind :
                 return x.getConst() == y.getConst();
             case varKind :
-                return (x.getVariable() == y.getVariable()) && (x.getDefInst() == y.getDefInst());
+                return (x.getVariableName() == y.getVariableName()) && (x.getDefInst() == y.getDefInst());
             case instKind :
-                return x.getInstNum() == y.getInstNum();
+                return x.getInst()->getLineNo() == y.getInst()->getLineNo();
             case regKind :
                 return x.getReg() == y.getReg();
             case blockKind :

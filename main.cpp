@@ -60,18 +60,35 @@ int main() {
             return 0;
         parser->startParse();
         //parser->printBlock();
-        parser->createControlFlowGraph(graphFolder+sourceFileName + "/",sourceFileName);
-        parser->createDominantGraph(graphFolder+sourceFileName + "/",sourceFileName);
+        parser->createControlFlowGraph(graphFolder+sourceFileName + "/" + "CFG_Original" + "/",sourceFileName,"Original");
+        parser->createDominantGraph(graphFolder+sourceFileName + "/" + "DT" + "/",sourceFileName);
 
         std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList = parser->getFuncList();
+
+        int numOfGlobalVar = parser->getNumOfVarInFunction(GLOBAL_SCOPE_NAME);
+        vector<shared_ptr<RegAllocation>> regAllocList;
+        vector<string> functionNameList;
         for(auto function : functionList)
         {
-            int numOfRegs = 8;
-            RegAllocation regAlloc(function.second);
-            regAlloc.doRegAllocation();
-            regAlloc.createInterferenceGraph(graphFolder+sourceFileName + "/",sourceFileName,function.first);
+            int numOfVar = parser->getNumOfVarInFunction(function.first);
+            if(function.first != GLOBAL_SCOPE_NAME)
+                numOfVar = numOfVar + numOfGlobalVar;
+            int numOfParam = parser->getNumOfParamInFunction(function.first);
+            shared_ptr<RegAllocation> regAlloc(new RegAllocation(function.first, function.second, numOfVar + numOfParam));
+            regAlloc->doRegAllocation();
+            regAllocList.push_back(regAlloc);
+            functionNameList.push_back(function.first);
         }
 
+        parser->createControlFlowGraph(graphFolder+sourceFileName + "/" + "CFG_RegAlloc" + "/",sourceFileName,"RegAlloc");
+
+        int index = 0;
+        for(auto regAlloc : regAllocList)
+        {
+            regAlloc->createInterferenceGraph(graphFolder+sourceFileName + "/" + "IG" + "/",sourceFileName,functionNameList.at(index));
+            regAlloc.reset();
+            index++;
+        }
 
         //string visualizeGraph = xvcg + " " + folder + graphFileName;
         //system(visualizeGraph.c_str());

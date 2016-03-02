@@ -12,10 +12,11 @@ SSABuilder::SSABuilder(string functionName, int startBlock, int startInst)
     this->startInst = startInst;
 }
 
-void SSABuilder:: prepareForProcess(string var, DefinedInfo defInfo)
+void SSABuilder:: prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedInfo defInfo)
 {
     auto definedInfoListIter = definedInfoTable.find(var);
     varName = var;
+    varSym = sym;
     if(definedInfoTable.end() == definedInfoListIter) //No information about var definition
     {
         //Initialize For First definition
@@ -46,19 +47,19 @@ void SSABuilder:: insertDefinedInstr()
         definedInfoTable.insert({varName, definedInfoList});
 
         //If there is no def before, become variable with start instruction
-        defBeforeInserted.setVariable(varName);//remember previously defined loc(for later use of ssa phi)
+        defBeforeInserted.setVariable(varName,varSym);//remember previously defined loc(for later use of ssa phi)
         defBeforeInserted.setDefInst(startInst);//Previously defined instr
         return;
     }
 
     DefinedInfo symDefined = definedInfoList.top();
     if(symDefined.getKind() == instKind)
-        defBeforeInserted.setInst(symDefined.getInstNum(),symDefined.getInst());
+        defBeforeInserted.setInst(symDefined.getInst());
     else if(symDefined.getKind() == constKind)
         defBeforeInserted.setConst(symDefined.getConst());
     else if(symDefined.getKind() == varKind)
     {
-        defBeforeInserted.setVariable(symDefined.getVar());
+        defBeforeInserted.setVariable(symDefined.getVar(),symDefined.getVarSym());
         defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
     }
 
@@ -78,7 +79,7 @@ DefinedInfo SSABuilder::getDefinedInfo() {
     {
         //Make virtual Definition(Defined at the start of a function)
         DefinedInfo symDefined(startBlock,varName);
-        symDefined.setVar(varName,startInst);
+        symDefined.setVar(varName,varSym,startInst);
         definedInfoList.push(symDefined);
         definedInfoTable.insert({varName, definedInfoList});
         return symDefined;
@@ -116,7 +117,7 @@ void SSABuilder:: preserveOuter()
     }
 }
 
-shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, Result defined, int operandIndex, int IRpc)
+shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, shared_ptr<Symbol> x_sym,Result defined, int operandIndex, int IRpc)
 {
     //Phi operand is phi x, x1, x2
     for(auto &irCode : currentPhiCodes)
@@ -124,7 +125,7 @@ shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, Result defined, in
         //if(irCode.getIROP() != IR_phi)
             //continue;
         Result var = irCode->operands.at(0);
-        if(var.getVariable() == x)//There is existing phi function
+        if(var.getVariableName() == x)//There is existing phi function
         {
             irCode->operands.at((unsigned long)operandIndex) = defined;
             shared_ptr<IRFormat> nullCode = NULL;
@@ -135,7 +136,7 @@ shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, Result defined, in
 
     //make phi for the first time
     Result operand[3];
-    operand[0].setVariable(x);
+    operand[0].setVariable(x,x_sym);
     operand[0].setDefInst(IRpc);
     operand[operandIndex] = defined;//x;
     int intactOperandIndex = (operandIndex == 1) ? 2 : 1;

@@ -22,68 +22,6 @@
 using namespace std;
 
 
-typedef enum{
-    sym_err, sym_var, sym_param, sym_array, sym_func, sym_proc
-}SymType;
-
-
-
-class Symbol
-{
-
-public:
-    Symbol(){ symType = sym_err; cost = 0;
-        numOfParam = 0;};
-    Symbol(SymType symType, int loc)
-    { this->symType = symType;this->symBaseAddr = loc;
-        numOfParam = 0;cost = 0;};
-    Symbol(SymType symType, int loc, vector<int> arrayCapacity)
-    { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
-        numOfParam = 0;cost = 0;};
-    Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
-    { this->symType = symType; this->symBaseAddr = loc;
-        this->numOfParam = numOfParam;cost = 0;};
-    void setSymType(SymType arg){symType = arg;};
-    SymType getSymType(){return symType;};
-    void setBaseAddr(int arg){ symBaseAddr = arg;};
-    int getBaseAddr(){return symBaseAddr;};
-    void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
-    int getNumOfParam(){ return numOfParam;};
-    void setCost(int arg){cost = arg;};
-    int getCost(){return cost;};
-
-    std::vector<int> arrayCapacity; //only for array : capacity and dimension
-
-    //std::vector<int> symAssignedInst; //only for variable assigned information
-
-private:
-    SymType symType; //var, array, function, procedure
-    int symBaseAddr; //Location of symbol
-    int numOfParam; //Only for function
-    int cost; //Only for var
-};
-
-
-class SymTable
-{
-public:
-    SymTable(){parentSymTableName = "";
-        localVarTop = LOCAL_IN_STACK;};
-    SymTable(string parentSymTableName)
-    { this->parentSymTableName = parentSymTableName;
-        localVarTop = LOCAL_IN_STACK;};
-    void setParent(string arg){this->parentSymTableName = arg;};
-    string getParent(){return parentSymTableName;};
-    unordered_map<string,shared_ptr<Symbol>> varSymbolList;
-    unordered_map<string,shared_ptr<Symbol>> funcSymbolList;
-    int getLocalVarTop(){return localVarTop;};
-    void setLocalVarTop(int arg){ localVarTop = arg;};
-private:
-    string parentSymTableName;
-    int localVarTop;
-};
-
-
 
 
 class Parser {
@@ -103,12 +41,23 @@ public:
     void printIRCodes(vector<shared_ptr<IRFormat>> codes);
     void printSymbolTable();
     void printBlock();
-    void createControlFlowGraph(const string &graphFolder,const string &sourceFileName);
+    void createControlFlowGraph(const string &graphFolder,const string &sourceFileName,const string version);
     void createDominantGraph(const string &graphFolder,const string &sourceFileName);
+    int getNumOfVarInFunction(string functionName){
+        SymTable table = symTableList.at(functionName);
+        return table.getNumOfVar();
+    };
+    int getNumOfParamInFunction(string functionName){
+        SymTable table = symTableList.at(functionName);
+        return table.getNumOfParam();
+    };
 
     string getCodeString(shared_ptr<IRFormat> code);
     std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> getFuncList(){return functionList;};
-
+    SymTable getSymTable(string functionName){
+        return symTableList.at(functionName);
+    };
+    shared_ptr<Symbol> symTableLookup(string scope,std::string symbol,SymType symType);
 
 private:
 
@@ -177,8 +126,8 @@ private:
     void addParamSymbol(std::string symbol, size_t numOfParam, int index);
 
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
-    shared_ptr<Symbol> symTableLookup(std::string symbol,SymType symType);
     void symbolTableUpdate(string var,shared_ptr<Symbol> varSym);
+
 
     //SSA
     SSABuilder ssaBuilder;

@@ -20,7 +20,7 @@ shared_ptr<IRFormat> CSETracker::findExistingCommonSub(IROP irOp,vector<Result> 
         {
             if(currentInstPtr->getIROP() == IR_store) {
                 //if the variable of array is the same kill(load var, store ~,var)
-                if (operands.at(0).getVariable() == currentInstPtr->operands.at(1).getVariable())
+                if (operands.at(0).getVariableName() == currentInstPtr->operands.at(1).getVariableName())
                     return NULL;
                 else {
                     currentInstPtr = currentInstPtr->getPreviousSameOpInst();

@@ -28,7 +28,8 @@
 #define REG_CALLEE_SAVED 5
 #define NUM_OF_CALlEE_SAVED 4
 #define NUM_OF_DATA_REGS 8
-
+#define MAX_NUMS_OF_REGS 128
+#define GLOBAL_SCOPE_NAME "main"
 
 
 
@@ -119,22 +120,27 @@ typedef enum{
     blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end
 }BlockKind;
 
+typedef enum{
+    sym_err, sym_var, sym_param, sym_array, sym_func, sym_proc
+}SymType;
+
 class IRFormat;
+class Symbol;
 
 class Result{
 public:
-    Result(){kind = errKind; value = -1; variable = ""; instNo = -1; relOp = IR_err, fixLoc = -1;defInst = -1;array = false;}
+    Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;}
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
     void setConst(int arg){kind = constKind;value = arg;};
     int getConst(){return value;};
     //Variable
-    void setVariable(string arg1){kind = varKind; variable = arg1;};
-    string getVariable(){return variable;};
+    void setVariable(string arg1, shared_ptr<Symbol> arg2){kind = varKind; variable = arg1;varSym = arg2;};
+    string getVariableName(){return variable;};
+    shared_ptr<Symbol> getVarSym(){return varSym;};
     //Instruction
-    void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNo = arg1; inst = arg2;};
-    int getInstNum(){return instNo;};
+    void setInst(shared_ptr<IRFormat> arg){kind = instKind;inst = arg;};
     shared_ptr<IRFormat> getInst(){return inst;};
     void setBlock(int arg){kind = blockKind; blockNo = arg;};
     int getBlock(){return blockNo;};
@@ -158,9 +164,9 @@ private:
     string constPropVar;
     //varKind
     std::string variable;
+    shared_ptr<Symbol> varSym;
     int defInst;
     //instKind
-    int instNo;
     shared_ptr<IRFormat> inst;
     bool array;
     int blockNo;
@@ -169,11 +175,10 @@ private:
     int regNo;
 };
 
-
 class IRFormat
 {
 public:
-    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;cost = 0;}
+    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;cost = 0;regNo = -1;};
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0)
     {
         this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;cost = 0;regNo = -1;
@@ -215,6 +220,78 @@ private:
     shared_ptr<IRFormat> previousSameOpInst;
 
 };
+
+class Symbol
+{
+
+public:
+    Symbol(){ symType = sym_err; cost = 0;
+        numOfParam = 0; regNo=-1;};
+    Symbol(SymType symType, int loc)
+    { this->symType = symType;this->symBaseAddr = loc;
+        numOfParam = 0;cost = 0;regNo=-1;};
+    Symbol(SymType symType, int loc, vector<int> arrayCapacity)
+    { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
+        numOfParam = 0;cost = 0;regNo=-1;};
+    Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
+    { this->symType = symType; this->symBaseAddr = loc;
+        this->numOfParam = numOfParam;cost = 0;regNo=-1;};
+    void setSymType(SymType arg){symType = arg;};
+    SymType getSymType(){return symType;};
+    void setBaseAddr(int arg){ symBaseAddr = arg;};
+    int getBaseAddr(){return symBaseAddr;};
+    void setNumOfParam(int arg){ this->numOfParam = numOfParam;};
+    int getNumOfParam(){ return numOfParam;};
+    void setCost(int arg){cost = arg;};
+    int getCost(){return cost;};
+    void setReg(int arg){regNo = arg;};
+    int getReg(){return regNo;};
+
+    std::vector<int> arrayCapacity; //only for array : capacity and dimension
+
+    //std::vector<int> symAssignedInst; //only for variable assigned information
+
+private:
+    SymType symType; //var, array, function, procedure
+    int symBaseAddr; //Location of symbol
+    int numOfParam; //Only for function
+    int cost; //Only for var
+    int regNo;
+};
+
+
+class SymTable
+{
+public:
+    SymTable(){parentSymTableName = "";
+        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;};
+    SymTable(string parentSymTableName)
+    { this->parentSymTableName = parentSymTableName;
+        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;};
+    void setParent(string arg){this->parentSymTableName = arg;};
+    string getParent(){return parentSymTableName;};
+    void insertVarSym(string symName, shared_ptr<Symbol> sym){
+        varSymbolList.insert({symName,sym});
+        if(sym->getSymType() == sym_var)
+            numOfSymVar++;
+        if(sym->getSymType() == sym_param)
+            numOfSymParam++;
+    };
+    int getNumOfVar(){return numOfSymVar;};
+    int getNumOfParam(){return numOfSymParam;};
+
+    unordered_map<string,shared_ptr<Symbol>> varSymbolList;
+    unordered_map<string,shared_ptr<Symbol>> funcSymbolList;
+    int getLocalVarTop(){return localVarTop;};
+    void setLocalVarTop(int arg){ localVarTop = arg;};
+private:
+    string parentSymTableName;
+    int numOfSymVar;
+    int numOfSymParam;
+    int localVarTop;
+};
+
+
 
 
 
