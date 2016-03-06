@@ -60,10 +60,14 @@ public:
 private:
     void buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unordered_map<int,shared_ptr<Node>> &liveSet);
     void Coloring();
+    void RemovePhi(shared_ptr<BasicBlock> currentBlock);
     vector<shared_ptr<BasicBlock>> blocks;
     void makeEdge(shared_ptr<Node> node1, shared_ptr<Node> node2);
     void getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet,vector<shared_ptr<IRFormat>> codes);
     void getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index);
+    shared_ptr<IRFormat> getMoveCode(int blkNo, int firstReg, int secondReg, int firstConst);
+    void insertMove(shared_ptr<BasicBlock> currentBlock, vector<array<int,3>> blockMoves);
+    shared_ptr<IRFormat> getUncondBranchCode(int blkNo, int destBlkNo);
 
     int numOfVarNodes;
     vector<bool> regMapTemplate;

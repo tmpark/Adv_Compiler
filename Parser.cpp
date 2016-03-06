@@ -125,6 +125,7 @@ void Parser::computation() {
                 {
                     Next(); //Consume end Token
                     if(scannerSym == periodToken) {
+                        emitIntermediate(IR_end,{});
                         finalizeAndStartNewBlock(blk_entry, false,false,false);
                         scopeStack.pop(); //end of main function
                         Next(); //Comsume period Token
@@ -428,8 +429,8 @@ void Parser::returnStatement() {
         if(isExpression(scannerSym))
         {
             x = expression();
-            Result ret;ret.setReg(REG_RET);
-            emitIntermediate(IR_move,{x,ret});
+            Result ret;ret.setReg(REG_RET_VAL);
+            emitIntermediate(IR_miu,{x,ret});
             Result offset = getAddressInStack(RETURN_IN_STACK);
             Result x = emitIntermediate(IR_load,{offset});
             emitIntermediate(IR_bra,{x});
@@ -466,7 +467,6 @@ void Parser::whileStatement() {
             CondJF(x); // x.fixloc indicate that the destination should be fixed
 
             ssaBuilder.startJoinBlock(currentBlock->getBlockKind(),currentBlock->getBlockNum());
-            ssaBuilder.preserveOuter();
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
 
@@ -493,7 +493,6 @@ void Parser::whileStatement() {
                         //After inner block, ssa numbering should be revert to the previous state
                         ssaBuilder.revertToOuter(dominatingBlockNum);
                         cseTracker.revertToOuter(dominatingBlockNum,true);
-
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
                         currentBlock->setOuterBlockKind(outerBlockKind);
@@ -521,6 +520,22 @@ void Parser::whileStatement() {
                             defInfo.setInst(code->getLineNo(),code);
 
                             ssaBuilder.prepareForProcess(targetOperand,targetOperandSym, defInfo);
+                            for(auto &operand : code->operands)
+                            {
+                                if(operand.getKind() == errKind)
+                                {
+                                    DefinedInfo defJustBefore = ssaBuilder.getDefinedInfo();
+                                    Kind kind = defJustBefore.getKind();
+                                    if(kind == instKind)
+                                        operand.setInst(defJustBefore.getInst());
+                                    else if(kind == varKind) {
+                                        operand.setVariable(defJustBefore.getVar(), defJustBefore.getVarSym());
+                                        operand.setDefInst(defJustBefore.getDefinedInstOfVar());
+                                    }
+                                    else if(kind == constKind)
+                                        operand.setConst(defJustBefore.getConst());
+                                }
+                            }
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
@@ -559,7 +574,6 @@ void Parser::ifStatement() {
 
             //Join Block create
             ssaBuilder.startJoinBlock(currentBlock->getBlockKind(),currentBlock->getBlockNum());
-            ssaBuilder.preserveOuter();
             BlockKind outerBlockKind = currentBlock->getOuterBlockKind();
             //In if statement, after the condition new block starts
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
@@ -582,7 +596,6 @@ void Parser::ifStatement() {
                         //After inner block, ssa numbering should be revert to the previous state
                         ssaBuilder.revertToOuter(dominatingBlockNum);
                         cseTracker.revertToOuter(dominatingBlockNum,false);
-                        ssaBuilder.preserveOuter();
                         //The start of else is new block
                         finalizeAndStartNewBlock(blk_if_else, false, false,false);//if then is performed it should avoid else
                         ssaBuilder.currentBlockKind.pop();
@@ -619,8 +632,10 @@ void Parser::ifStatement() {
                         vector<shared_ptr<IRFormat>> phiCodes = ssaBuilder.getPhiCodes();
                         ssaBuilder.endJoinBlock(); //go back to outer joinBlock
 
+
                         for(auto code : phiCodes)
                         {
+
                             code->setBlkNo(currentBlock->getBlockNum());//Fix join block num which was not correct at first.
                             currentBlock->phiCodes.push_back(code);//contents of join block is copied
 
@@ -635,6 +650,24 @@ void Parser::ifStatement() {
                             defInfo.setInst(code->getLineNo(),code);
 
                             ssaBuilder.prepareForProcess(targetOperand, targetOperandSym,defInfo);
+                            for(auto &operand : code->operands)
+                            {
+                                if(operand.getKind() == errKind)
+                                {
+                                    DefinedInfo defJustBefore = ssaBuilder.getDefinedInfo();
+                                    Kind kind = defJustBefore.getKind();
+                                    if(kind == instKind)
+                                        operand.setInst(defJustBefore.getInst());
+                                    else if(kind == varKind) {
+                                        operand.setVariable(defJustBefore.getVar(), defJustBefore.getVarSym());
+                                        operand.setDefInst(defJustBefore.getDefinedInstOfVar());
+                                    }
+                                    else if(kind == constKind)
+                                        operand.setConst(defJustBefore.getConst());
+                                }
+                            }
+
+
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
                             emitOrUpdatePhi(targetOperand,definedOperand);
@@ -963,7 +996,7 @@ Result Parser::designator() {
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
             y.setReg(REG_FP);//Frame pointer
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
-            result = emitIntermediate(IR_adda,{updatedIndex,y});//base address + index
+            result = emitIntermediate(IR_adda,{y,updatedIndex});//base address + index
             result.setArrayInst(variableName);
         }
         else
@@ -1179,7 +1212,7 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
         else if (operand.getKind() == varKind)
         {
             shared_ptr<Symbol> varSym = operand.getVarSym();
-            int regNo = varSym->getReg();
+            int regNo = varSym->getRegNo();
             if(regNo == -1)
                 result = result + tab + operand.getVariableName() + "_" + to_string(operand.getDefInst());// << "\t";
             else
@@ -1198,7 +1231,7 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
         }
         else if(operand.getKind() == blockKind) //Result of that instruction
         {
-            result = result + tab + "[" + to_string(operand.getBlock()) + "]";// << "\t";
+            result = result + tab + "[" + to_string(operand.getBlockNo()) + "]";// << "\t";
         }
         else if(operand.getKind() == regKind)
         {
@@ -1237,10 +1270,14 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
             shared_ptr<BasicBlock> block = blockPair;
             graphDrawer->writeNodeStart(block->getBlockNum(), block->getBlockName());
             for (auto code : block->phiCodes) {
+                if(code->isElimiated())
+                    continue;
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
             for (auto code : block->irCodes) {
+                if(code->isElimiated())
+                    continue;
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
@@ -1292,10 +1329,14 @@ void Parser::createDominantGraph(const string &graphFolder,const string &sourceF
             shared_ptr<BasicBlock> block = blockPair;
             graphDrawer->writeNodeStart(block->getBlockNum(), block->getBlockName());
             for (auto code : block->phiCodes) {
+                if(code->isElimiated())
+                    continue;
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
             for (auto code : block->irCodes) {
+                if(code->isElimiated())
+                    continue;
                 string codeString = getCodeString(code);
                 graphDrawer->writeCode(codeString);
             }
@@ -1375,7 +1416,7 @@ void Parser::printIRCodes(vector<shared_ptr<IRFormat>> codes)
             }
             else if(operand.getKind() == blockKind) //Result of that instruction
             {
-                std::cout << "[" << operand.getBlock() << "]";// << "\t";
+                std::cout << "[" << operand.getBlockNo() << "]";// << "\t";
             }
             else if(operand.getKind() == regKind)
             {
@@ -1659,7 +1700,7 @@ Result Parser:: getAddressInStack(int location)
     Result adjust;adjust.setConst(4);
     Result FP;FP.setReg(REG_FP);
     offset = emitIntermediate(IR_mul,{offset,adjust});
-    offset = emitIntermediate(IR_adda,{offset,FP});
+    offset = emitIntermediate(IR_adda,{FP,offset});
     //offset.setArrayInst();
     return offset;
 }
@@ -2005,14 +2046,14 @@ void Parser::Load(Result &x)
     {
         x.regNo = AllocateReg();
         //Emit code for (value in reg0 + x.value -> value in x.regNo)
-        PutF1(ADDI_OP, x.regNo,0,x.value);
+        PutF1(OP_ADDI, x.regNo,0,x.value);
         x.kind = regKind;
     }
     else if(x.kind == varKind)
     {
         x.regNo = AllocateReg();
         //Emit code for (value in Mem[globalBase + x.address] -> value in x.regNo)
-        PutF1(LDW_OP,x.regNo,globalBase,x.address);
+        PutF1(OP_LDW,x.regNo,globalBase,x.address);
     }
 }
 
@@ -2045,13 +2086,13 @@ void Parser:: Compute(TokenType computeToken, Result &x, Result &y) {
     int op = 0;
 
     if(computeToken == plusToken)
-        op = ADD_OP;
+        op = OP_ADD;
     else if (computeToken == minusToken)
-        op = SUB_OP;
+        op = OP_SUB;
     else if (computeToken == timesToken)
-        op = MUL_OP;
+        op = OP_MUL;
     else if (computeToken == divToken)
-        op = DIV_OP;
+        op = OP_DIV;
     else {
         std::cerr << "Only+,-,*,/ token can be allowed" << std::endl;
         return;
@@ -2059,19 +2100,19 @@ void Parser:: Compute(TokenType computeToken, Result &x, Result &y) {
 
     if (x.kind == constKind && y.kind == constKind)
     {
-        if (op == ADD_OP)
+        if (op == OP_ADD)
             x.value += y.value;
-        else if(op == SUB_OP)
+        else if(op == OP_SUB)
             x.value -= y.value;
-        else if(op == MUL_OP)
+        else if(op == OP_MUL)
             x.value *= y.value;
-        else if(op == DIV_OP)
+        else if(op == OP_DIV)
             x.value /= y.value;
     }
     else if(y.kind == constKind)
     {
         Load(x); //value of x will be stored in a register
-        PutF1(lmmOp((Opcode)op),x.regNo, x.regNo, y.value);
+        PutF1(lmmOp((OpCode)op),x.regNo, x.regNo, y.value);
     }
         //
     else

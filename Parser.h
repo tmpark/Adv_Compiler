@@ -58,6 +58,14 @@ public:
         return symTableList.at(functionName);
     };
     shared_ptr<Symbol> symTableLookup(string scope,std::string symbol,SymType symType);
+    int newInstruction(){return IRpc++;};
+    int newBasicBlock(){return numOfBlock++;};
+
+    void updateBlockInfo(string functionName, shared_ptr<BasicBlock> block)
+    {
+        vector<shared_ptr<BasicBlock>> *blockList = &functionList.at(functionName);
+        blockList->push_back(block);
+    }
 
 private:
 
@@ -110,6 +118,7 @@ private:
     std::unordered_map<std::string,SymTable> symTableList;
     //std::vector<BasicBlock> basicBlockList;
     std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList;
+
     shared_ptr<BasicBlock> currentBlock;
     unordered_map<int,shared_ptr<BasicBlock>> instructionBlockPair;
     bool finalizeAndStartNewBlock(BlockKind newBlockKind, bool isCurrentCond, bool directFlowExist, bool dominate);

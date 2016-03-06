@@ -25,15 +25,16 @@ void SSABuilder:: prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedIn
         definitionExist = false;
     }
     else{
+        definitionExist = true;
         currentDefInfo = defInfo;
         definedInfoList = definedInfoListIter->second;
         if(definedInfoList.empty()) //There was def but no longer exist because that def is inner scope and popped
         {
-            definedInfoTable.erase(var);
-            definitionExist = false;
+            //definedInfoTable.erase(var);
+            definitionEmpty = true;
         }
         else
-            definitionExist = true;
+            definitionEmpty = false;
     }
     return;
 }
@@ -52,22 +53,28 @@ void SSABuilder:: insertDefinedInstr()
         return;
     }
 
-    DefinedInfo symDefined = definedInfoList.top();
-    if(symDefined.getKind() == instKind)
-        defBeforeInserted.setInst(symDefined.getInst());
-    else if(symDefined.getKind() == constKind)
-        defBeforeInserted.setConst(symDefined.getConst());
-    else if(symDefined.getKind() == varKind)
+    if(!definitionEmpty)
     {
-        defBeforeInserted.setVariable(symDefined.getVar(),symDefined.getVarSym());
-        defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
+        DefinedInfo symDefined = definedInfoList.top();
+        if(symDefined.getKind() == instKind)
+            defBeforeInserted.setInst(symDefined.getInst());
+        else if(symDefined.getKind() == constKind)
+            defBeforeInserted.setConst(symDefined.getConst());
+        else if(symDefined.getKind() == varKind)
+        {
+            defBeforeInserted.setVariable(symDefined.getVar(),symDefined.getVarSym());
+            defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
+        }
+    }
+    else
+    {
+        defBeforeInserted.setVariable(varName,varSym);//remember previously defined loc(for later use of ssa phi)
+        defBeforeInserted.setDefInst(startInst);//Previously defined instr
     }
 
-    if(symDefined.ispreserved()) //local numbering
-        definedInfoList.push(currentDefInfo);
-    else//global numbering
-        definedInfoList.top() = currentDefInfo;
 
+
+    definedInfoList.push(currentDefInfo);
     definedInfoTable.at(varName) = definedInfoList; //update
     return;
 }
@@ -84,8 +91,18 @@ DefinedInfo SSABuilder::getDefinedInfo() {
         definedInfoTable.insert({varName, definedInfoList});
         return symDefined;
     }
-    //There is instruction
-    return definedInfoList.top();
+
+    if(definitionEmpty)
+    {
+        DefinedInfo symDefined(startBlock,varName);
+        symDefined.setVar(varName,varSym,startInst);
+        definedInfoList.push(symDefined);
+        definedInfoTable.at(varName) = definedInfoList;
+        return symDefined;
+    }
+
+    else//There is instruction
+       return definedInfoList.top();
 }
 
 
@@ -94,28 +111,23 @@ void SSABuilder:: revertToOuter(int blockNum)
     //until getBlkNum dominate blockNum
     for (auto &definedLocIter : definedInfoTable)
     {
+        string definedString = definedLocIter.first;
+        if(definedString == "d")
+            int debug = 1;
         stack<DefinedInfo> definedInfos = definedLocIter.second;
         while(!definedInfos.empty() && definedInfos.top().getBlkNum() > blockNum)
         {
+            DefinedInfo defInfo = definedInfos.top();
+            int instNum = defInfo.getInstNum();
+
             definedInfos.pop();
         }
-        if(!definedInfos.empty())
-            definedInfos.top().setPreserved(false);
+
         definedLocIter.second = definedInfos;
     }
 }
 
-void SSABuilder:: preserveOuter()
-{
-    for (auto &definedLocIter : definedInfoTable)
-    {
-        stack<DefinedInfo> definedInfos = definedLocIter.second;
-        if(!definedInfos.empty()) {
-            definedInfos.top().setPreserved(true);
-            definedLocIter.second = definedInfos;
-        }
-    }
-}
+
 
 shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, shared_ptr<Symbol> x_sym,Result defined, int operandIndex, int IRpc)
 {
@@ -140,10 +152,15 @@ shared_ptr<IRFormat> SSABuilder:: updatePhiFunction(string x, shared_ptr<Symbol>
     operand[0].setDefInst(IRpc);
     operand[operandIndex] = defined;//x;
     int intactOperandIndex = (operandIndex == 1) ? 2 : 1;
+    defBeforeInserted = Result();
     operand[intactOperandIndex] = defBeforeInserted;
 
     //Fixme:for if, join block should be fixed
-    shared_ptr<IRFormat> irCode(new IRFormat(currentJoinBlockNum,IRpc,IR_phi,operand[0],operand[1],operand[2]));
+    shared_ptr<IRFormat> irCode(new IRFormat);
+    irCode->setBlkNo(currentJoinBlockNum);
+    irCode->setLineNo(IRpc);
+    irCode->setIROP(IR_phi);
+    irCode->operands = {operand[0],operand[1],operand[2]};
     //currentJoinBlock.irCodes.insert(currentJoinBlock.irCodes.begin(),irCode);
     currentPhiCodes.push_back(irCode);
     return irCode;

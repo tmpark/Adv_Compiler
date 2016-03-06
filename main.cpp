@@ -1,11 +1,12 @@
 #include <iostream>
-#include "RegAllocation.h"
+#include "CodeGeneration.h"
 
 using namespace std;
 
 int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
     string graphFolder = "/home/tmpark/ClionProjects/Adv_Compiler/graph/";
+    string binaryFolder = "/home/tmpark/ClionProjects/Adv_Compiler/binary/";
     string sourceFileFormat = ".txt";
     string graphFileName = "graph.vcg";
     string xvcg = "xvcg -font rk24";
@@ -31,7 +32,10 @@ int main() {
     //Test26 -> CSE Test
 
     //1~35
-    for(int i = 1 ; i < 35 ; i++)
+    //9:inner if
+    //10:inner while
+
+    for(int i = 1 ; i < 2 ; i++)
     {
         if(i == 4)
             continue;
@@ -89,6 +93,9 @@ int main() {
             regAlloc.reset();
             index++;
         }
+        CodeGeneration codeGeneration(functionList);
+        codeGeneration.doCodeGen();
+        codeGeneration.writeOutCode(binaryFolder+sourceFileName + "/",sourceFileName);
 
         //string visualizeGraph = xvcg + " " + folder + graphFileName;
         //system(visualizeGraph.c_str());

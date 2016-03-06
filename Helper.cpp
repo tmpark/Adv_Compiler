@@ -256,9 +256,9 @@ bool isFuncBody(TokenType scannerSym)
 }
 
 
-Opcode lmmOp(Opcode op)
+OpCode lmmOp(OpCode op)
 {
-    return (Opcode)(op + 16);
+    return (OpCode)(op + 16);
 }
 
 std::string getIROperatorString(IROP irOp)
@@ -408,7 +408,7 @@ bool isSameOperand(Result x, Result y){
             case regKind :
                 return x.getReg() == y.getReg();
             case blockKind :
-                return x.getBlock() == y.getBlock();
+                return x.getBlockNo() == y.getBlockNo();
             default:
                 cerr << "No distinguisable kind of operand" << endl;
         }
@@ -427,4 +427,160 @@ bool isDefInstr(IROP op)
 {
     return op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp || op == IR_adda ||
             op == IR_phi || op == IR_read;
+}
+
+OpCode irToOp(IROP irOp, OPFORMAT opFormat)
+{
+    switch(irOp){
+        case IR_add:
+            if(opFormat == OP_F1)
+                return OP_ADDI;
+            else
+                return OP_ADD;
+        case IR_sub:
+            if(opFormat == OP_F1)
+                return OP_SUBI;
+            else
+                return OP_SUB;
+        case IR_mul:
+            if(opFormat == OP_F1)
+                return OP_MULI;
+            else
+                return OP_MUL;
+        case IR_div:
+            if(opFormat == OP_F1)
+                return OP_DIVI;
+            else
+                return OP_DIV;
+        case IR_cmp:
+            if(opFormat == OP_F1)
+                return OP_CMPI;
+            else
+                return OP_CMP;
+        case IR_load:
+            if(opFormat == OP_F1)
+                return OP_LDW;
+            else
+                return OP_LDX;
+        case IR_store:
+            if(opFormat == OP_F1)
+                return OP_STW;
+            else
+                return OP_STX;
+        case IR_end:
+            return OP_RET;
+        case IR_bra:
+            return OP_BEQ;
+        case IR_bne:
+            return OP_BNE;
+        case IR_beq:
+            return OP_BEQ;
+        case IR_ble:
+            return OP_BLE;
+        case IR_blt:
+            return OP_BLT;
+        case IR_bge:
+            return OP_BGE;
+        case IR_bgt:
+            return OP_BGT;
+        case IR_read:
+            return OP_RDD;
+        case IR_write:
+            return OP_WRD;
+        case IR_writeNL:
+            return OP_WRL;
+        default:
+            return OP_ERR;
+    }
+}
+
+void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat)
+{
+
+    switch (opCode) {
+        case OP_WRL:
+            numOfArgs = 0;
+            opFormat = OP_F1;
+            break;
+        // F1 Format
+        case OP_BSR:
+            numOfArgs = 1;
+            opFormat = OP_F1;
+            break;
+        case OP_RDD:
+            numOfArgs = 1;
+            opFormat = OP_F1;
+            break;
+        case OP_WRD:
+        case OP_WRH:
+            numOfArgs = 1;
+            opFormat = OP_F1;
+            break;
+            // F2 Format
+        case OP_RET:
+            numOfArgs = 1;
+            opFormat = OP_F2;
+            break;
+            // F3 Format
+        case OP_JSR:
+            numOfArgs = 1;
+            opFormat = OP_F3;
+            break;
+            // F1 Format
+        case OP_CHKI:
+        case OP_BEQ:
+        case OP_BNE:
+        case OP_BLT:
+        case OP_BGE:
+        case OP_BLE:
+        case OP_BGT:
+            numOfArgs = 2;
+            opFormat = OP_F1;
+            break;
+            // F2 Format
+        case OP_CHK:
+            numOfArgs = 2;
+            opFormat = OP_F2;
+            break;
+            // F1 Format
+        case OP_ADDI:
+        case OP_SUBI:
+        case OP_MULI:
+        case OP_DIVI:
+        case OP_MODI:
+        case OP_CMPI:
+        case OP_ORI:
+        case OP_ANDI:
+        case OP_BICI:
+        case OP_XORI:
+        case OP_LSHI:
+        case OP_ASHI:
+        case OP_LDW:
+        case OP_POP:
+        case OP_STW:
+        case OP_PSH:
+            numOfArgs = 3;
+            opFormat = OP_F1;
+            break;
+            // F2 Format
+        case OP_ADD:
+        case OP_SUB:
+        case OP_MUL:
+        case OP_DIV:
+        case OP_MOD:
+        case OP_CMP:
+        case OP_OR:
+        case OP_AND:
+        case OP_BIC:
+        case OP_XOR:
+        case OP_LSH:
+        case OP_ASH:
+        case OP_LDX:
+        case OP_STX:
+            numOfArgs = 3;
+            opFormat = OP_F2;
+            break;
+        default:
+            cerr << "there is no opcode like this" << endl;
+    }
 }

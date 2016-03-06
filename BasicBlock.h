@@ -35,7 +35,8 @@ public:
         else if(blockKind == blk_if_end)return "if.end";
         else if(blockKind == blk_while_cond)return "while.cond";
         else if(blockKind == blk_while_body)return "while.body";
-        else if(blockKind == blk_while_end)return "while.end"; };
+        else if(blockKind == blk_while_end)return "while.end";
+            else if(blockKind == blk_move)return "move"; };
     void setBlockKind(BlockKind arg){blockKind = arg;};
     void setOuterBlockKind(BlockKind arg){outerBlockKind = arg;};
     BlockKind getOuterBlockKind(){return outerBlockKind;};

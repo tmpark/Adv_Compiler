@@ -63,6 +63,10 @@ typedef enum {
     beginToken = 150, mainToken = 200, eofToken = 255, commentToken
 }TokenType;
 
+typedef enum{
+    OP_F1, OP_F2, OP_F3
+}OPFORMAT;
+
 
 static std::unordered_map<int,std::string> tokenStringMap = {{errToken,       "error"}, {timesToken, "*"}, {divToken, "/"},
                                                              {plusToken,      "+"}, {minusToken, "-"}, {eqlToken, "=="}, {neqToken, "!="},
@@ -87,15 +91,15 @@ static std::unordered_map<std::string,TokenType> reservedWord = {{"then",thenTok
 
 typedef enum{
 
-    ADD_OP = 0, SUB_OP, MUL_OP, DIV_OP, MOD_OP, CMP_OP,
-    OR_OP = 8, AND_OP, BIC_OP, XOR_OP, LSH_OP, ASH_OP, CHK_OP,
-    ADDI_OP = 16, SUBI_OP, MULI_OP, DIVI_OP, MODI_OP, CMPI_OP,
-    ORI_OP = 24, ANDI_OP, BICI_OP, XORI_OP, LSHI_OP, ASHI_OP, CHKI_OP,
-    LDW_OP = 32, LDX_OP, POP_OP,
-    STW_OP = 36, STX_OP, PSH_OP,
-    BEQ_OP = 40, BNE_OP, BLT_OP, BGE_OP, BLE_OP, BGT_OP, BSR_OP,
-    JSR_OP = 48, RET_OP, RDD_OP, WRD_OP, WRH_OP, WRL_OP
-}Opcode;
+    OP_ADD = 0, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_CMP,
+    OP_OR = 8, OP_AND, OP_BIC, OP_XOR, OP_LSH, OP_ASH, OP_CHK,
+    OP_ADDI = 16, OP_SUBI, OP_MULI, OP_DIVI, OP_MODI, OP_CMPI,
+    OP_ORI = 24, OP_ANDI, OP_BICI, OP_XORI, OP_LSHI, OP_ASHI, OP_CHKI,
+    OP_LDW = 32, OP_LDX, OP_POP,
+    OP_STW = 36, OP_STX, OP_PSH,
+    OP_BEQ = 40, OP_BNE, OP_BLT, OP_BGE, OP_BLE, OP_BGT, OP_BSR,
+    OP_JSR = 48, OP_RET, OP_RDD, OP_WRD, OP_WRH, OP_WRL, OP_ERR
+} OpCode;
 
 typedef enum{
     IR_err, IR_neg, IR_add, IR_sub, IR_mul, IR_div, IR_cmp, IR_adda, IR_load, IR_store, IR_move, IR_phi, IR_miu, IR_end,
@@ -117,7 +121,7 @@ typedef enum{
 }Kind;
 
 typedef enum{
-    blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end
+    blk_entry, blk_while_cond,blk_while_body,blk_while_end, blk_if_then, blk_if_else, blk_if_end, blk_move
 }BlockKind;
 
 typedef enum{
@@ -126,71 +130,27 @@ typedef enum{
 
 class IRFormat;
 class Symbol;
+class Result;
 
-class Result{
-public:
-    Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;}
-    void setKind(Kind arg){kind = arg;};
-    Kind getKind(){return kind;};
-    //Const
-    void setConst(int arg){kind = constKind;value = arg;};
-    int getConst(){return value;};
-    //Variable
-    void setVariable(string arg1, shared_ptr<Symbol> arg2){kind = varKind; variable = arg1;varSym = arg2;};
-    string getVariableName(){return variable;};
-    shared_ptr<Symbol> getVarSym(){return varSym;};
-    //Instruction
-    void setInst(shared_ptr<IRFormat> arg){kind = instKind;inst = arg;};
-    shared_ptr<IRFormat> getInst(){return inst;};
-    void setBlock(int arg){kind = blockKind; blockNo = arg;};
-    int getBlock(){return blockNo;};
-    void setRelOp(IROP arg){relOp = arg;}; //Only for relation
-    IROP getRelOp(){return relOp;};  //Only for relation
-    void setFixLoc(int arg){fixLoc = arg;};//Only for relation
-    int getFixLoc(){return fixLoc;};//Only for relation
-    void setReg(int arg){kind = regKind; regNo = arg;};
-    int getReg(){return regNo;};
-    void setDefInst(int arg){defInst = arg;};
-    int getDefInst(){return defInst;};
-    void setArrayInst(string arrayVarName){array = true;variable = arrayVarName;};
-    bool isArrayInst(){return array;};
-    void setConstPropVar(string arg){constPropVar = arg;};
-    string getConstPropVar(){return constPropVar;};
 
-private:
-    Kind kind;
-    //constKind
-    int value;
-    string constPropVar;
-    //varKind
-    std::string variable;
-    shared_ptr<Symbol> varSym;
-    int defInst;
-    //instKind
-    shared_ptr<IRFormat> inst;
-    bool array;
-    int blockNo;
-    IROP relOp ;
-    int fixLoc;
-    int regNo;
-};
 
 class IRFormat
 {
 public:
-    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;cost = 0;regNo = -1;};
+    IRFormat(){blkNo = -1; instNo = -1; ir_op = IR_err;previousSameOpInst = NULL;cost = 0;regNo = -1;elimiated = false;};
+    /*
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0)
     {
-        this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;cost = 0;regNo = -1;
+        this->blkNo = blkNo; this->instNo = instNo;this->ir_op = ir_op, operands = {operand0};previousSameOpInst = NULL;cost = 0;regNo = -1;;elimiated = false;
     };
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1)
     {
-        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;cost = 0;regNo = -1;
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1};previousSameOpInst = NULL;cost = 0;regNo = -1;;elimiated = false;
     };
     IRFormat(int blkNo, int instNo, IROP ir_op, Result operand0, Result operand1, Result operand2)
     {
-        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;cost = 0;regNo = -1;
-    };
+        this->blkNo = blkNo;this->instNo = instNo;this->ir_op = ir_op, operands = {operand0,operand1,operand2};previousSameOpInst = NULL;cost = 0;regNo = -1;;elimiated = false;
+    };*/
 
     void setBlkNo(int arg){blkNo = arg;};
     int getBlkNo(){return blkNo;};
@@ -211,7 +171,11 @@ public:
     void setRegNo(int arg){regNo = arg;};
     int getRegNo(){return regNo;};
 
+    bool isElimiated(){return elimiated;};
+    void elimiate(){elimiated = true;};
+
 private:
+    bool elimiated;
     int blkNo;
     int instNo;
     int regNo;
@@ -245,7 +209,7 @@ public:
     void setCost(int arg){cost = arg;};
     int getCost(){return cost;};
     void setReg(int arg){regNo = arg;};
-    int getReg(){return regNo;};
+    int getRegNo(){return regNo;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
 
@@ -291,7 +255,59 @@ private:
     int localVarTop;
 };
 
+class Result{
+public:
+    Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;}
+    void setKind(Kind arg){kind = arg;};
+    Kind getKind(){return kind;};
+    //Const
+    void setConst(int arg){kind = constKind;value = arg;};
+    int getConst(){return value;};
+    //Variable
+    void setVariable(string arg1, shared_ptr<Symbol> arg2){kind = varKind; variable = arg1;varSym = arg2;};
+    string getVariableName(){return variable;};
+    shared_ptr<Symbol> getVarSym(){return varSym;};
+    //Instruction
+    void setInst(shared_ptr<IRFormat> arg){kind = instKind;inst = arg;};
+    shared_ptr<IRFormat> getInst(){return inst;};
+    void setBlock(int arg){kind = blockKind; blockNo = arg;};
+    int getBlockNo(){return blockNo;};
+    void setRelOp(IROP arg){relOp = arg;}; //Only for relation
+    IROP getRelOp(){return relOp;};  //Only for relation
+    void setFixLoc(int arg){fixLoc = arg;};//Only for relation
+    int getFixLoc(){return fixLoc;};//Only for relation
+    void setReg(int arg){kind = regKind; regNo = arg;};
+    int getReg(){
+        if(kind == varKind)
+            return varSym->getRegNo();
+        else if(kind == instKind)
+            return inst->getRegNo();
+        else
+            return regNo;};
+    void setDefInst(int arg){defInst = arg;};
+    int getDefInst(){return defInst;};
+    void setArrayInst(string arrayVarName){array = true;variable = arrayVarName;};
+    bool isArrayInst(){return array;};
+    void setConstPropVar(string arg){constPropVar = arg;};
+    string getConstPropVar(){return constPropVar;};
 
+private:
+    Kind kind;
+    //constKind
+    int value;
+    string constPropVar;
+    //varKind
+    std::string variable;
+    shared_ptr<Symbol> varSym;
+    int defInst;
+    //instKind
+    shared_ptr<IRFormat> inst;
+    bool array;
+    int blockNo;
+    IROP relOp ;
+    int fixLoc;
+    int regNo;
+};
 
 
 
@@ -316,7 +332,7 @@ bool isVarDecl(TokenType scannerSym);
 bool isFuncDecl(TokenType scannerSym);
 bool isFormalParam(TokenType scannerSym);
 bool isFuncBody(TokenType scannerSym);
-Opcode lmmOp(Opcode op);
+OpCode lmmOp(OpCode op);
 std::string getIROperatorString(IROP irOp);
 IROP getIRopFromToken(TokenType scannerSym);
 IROP negateCondition(IROP ir_op);
@@ -325,4 +341,6 @@ bool isBranchCond(IROP op);
 bool isSameOperand(Result x, Result y);
 bool isInnerBlock(BlockKind blkKind);
 bool isDefInstr(IROP op);
+OpCode irToOp(IROP irOp, OPFORMAT opFormat);
+void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat);
 #endif //ADV_COMPILER_HELPER_H

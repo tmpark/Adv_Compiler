@@ -22,7 +22,8 @@ class DefinedInfo
 {
 public:
     DefinedInfo(){};
-    DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;preserved = false;};
+    DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;
+        locked = false;};
     void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNum = arg1; inst = arg2;};
     int getInstNum(){return instNum;};
     shared_ptr<IRFormat> getInst(){return inst;};
@@ -33,8 +34,8 @@ public:
     int getConst(){return constVal;};
     Kind getKind(){return kind;};
     int getBlkNum(){return blkNum;};
-    void setPreserved(bool arg){preserved = arg;};
-    bool ispreserved(){return preserved;};
+    void setPreserved(bool arg){ locked = arg;};
+    bool isLocked(){return locked;};
     shared_ptr<Symbol> getVarSym(){return varSym;};
 
 private:
@@ -47,7 +48,7 @@ private:
     shared_ptr<Symbol> varSym;
     int definedInst;
     int constVal;
-    bool preserved;
+    bool locked;
 };
 
 
@@ -70,7 +71,7 @@ public:
     vector<shared_ptr<IRFormat>> getPhiCodes(){return currentPhiCodes;};
     stack<BlockKind> currentBlockKind;
     vector<shared_ptr<IRFormat>> currentPhiCodes;
-    void preserveOuter();
+
     int getStartBlock(){return startBlock;};
 
 private:
@@ -91,6 +92,7 @@ private:
     int currentJoinBlockNum;
     DefinedInfo currentDefInfo;
     bool definitionExist;
+    bool definitionEmpty;
     Result defBeforeInserted;
 
 

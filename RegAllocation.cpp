@@ -6,6 +6,7 @@
 
 RegAllocation :: RegAllocation(string functionName,vector<shared_ptr<BasicBlock>> blocks, const int numOfVars)
 {
+
     instNodeStart = numOfVars;
     this->blocks = blocks;
     numOfVarNodes = 0;
@@ -26,6 +27,7 @@ void RegAllocation::doRegAllocation()
     unordered_map<int,shared_ptr<Node>> liveSet;
     buildInterfGraph(blocks.at(0),liveSet);
     Coloring();
+    RemovePhi(blocks.at(0));
 }
 
 void RegAllocation::Coloring()
@@ -47,15 +49,15 @@ void RegAllocation::Coloring()
             lowestCost = costOfCode;
             lowestCostNode = node;
         }
-        size_t numOfNeighbors = node->neighbors.size();
-        if(numOfNeighbors < NUM_OF_DATA_REGS) {
-            targetNode = node;
-            NodeFound = true;
-            break;
-        }
+        //size_t numOfNeighbors = node->neighbors.size();
+        //if(numOfNeighbors < NUM_OF_DATA_REGS) {
+        //    targetNode = node;
+        //    NodeFound = true;
+        //    break;
+        //}
     }
     //No inst fewer than num of regs -> node with lowest cost
-    if(!NodeFound)
+    //if(!NodeFound)
         targetNode = lowestCostNode;
 
     int targetNodeNum = targetNode->getNodeNum();
@@ -93,7 +95,265 @@ void RegAllocation::Coloring()
     }
 }
 
+void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
+{
+    Parser *parser = Parser::instance();
+    for(auto childBlockIter : currentBlock->DTForwardEdges)
+    {
+        BlockKind blkKind = childBlockIter->getBlockKind();
+        if(blkKind == blk_while_cond) {
+            for (auto phiCode : childBlockIter->phiCodes) {
+                if(phiCode->isElimiated())
+                    continue;
+                //first operand is comming from the parent
+                Result operand = phiCode->operands.at(1);
+                Kind operandKind = operand.getKind();
+                int regNoOfPhi = phiCode->getRegNo();
 
+                if (operandKind == instKind) {
+                    shared_ptr<IRFormat> operandCode = operand.getInst();
+                    int operandCodeReg = operandCode->getRegNo();
+                    if (operandCodeReg != regNoOfPhi) {
+                        int definedBlockNum = operandCode->getBlkNo();
+                        shared_ptr<IRFormat> ir_line = getMoveCode(currentBlock->getBlockNum(), operandCodeReg,
+                                                                   regNoOfPhi, 0);
+                        currentBlock->irCodes.push_back(ir_line);
+                    }
+                }
+                else if (operandKind == varKind) {
+                    shared_ptr<Symbol> operandSymbol = operand.getVarSym();
+                    int operandSymReg = operandSymbol->getRegNo();
+                    if (operandSymReg != regNoOfPhi) {
+                        shared_ptr<IRFormat> ir_line = getMoveCode(currentBlock->getBlockNum(), operandSymReg,
+                                                                   regNoOfPhi, 0);
+                        currentBlock->irCodes.push_back(ir_line);
+                    }
+                }
+                else if (operandKind == constKind) {
+                    shared_ptr<IRFormat> ir_line = getMoveCode(currentBlock->getBlockNum(), operand.getConst(),
+                                                               regNoOfPhi, 1);
+                    currentBlock->irCodes.push_back(ir_line);
+                }
+
+            }
+        }
+        else if(blkKind == blk_while_body)
+        {
+            vector<array<int,3>> bodyBlockMoves;
+
+            for (auto phiCode : currentBlock->phiCodes) {
+                if(phiCode->isElimiated())
+                    continue;
+                //first operand is comming from the parent
+                Result operand = phiCode->operands.at(2);
+                Kind operandKind = operand.getKind();
+                int regNoOfPhi = phiCode->getRegNo();
+
+                if (operandKind == instKind) {
+                    shared_ptr<IRFormat> operandCode = operand.getInst();
+                    int operandCodeReg = operandCode->getRegNo();
+                    if (operandCodeReg != regNoOfPhi) {
+                        array<int,3> moveTuple = {operandCodeReg,regNoOfPhi,0};
+                        bodyBlockMoves.push_back(moveTuple);
+                    }
+                }
+                else if (operandKind == varKind) {
+                    shared_ptr<Symbol> operandSymbol = operand.getVarSym();
+                    int operandSymReg = operandSymbol->getRegNo();
+                    if (operandSymReg != regNoOfPhi) {
+                        array<int,3> moveTuple = {operandSymReg,regNoOfPhi,0};
+                        bodyBlockMoves.push_back(moveTuple);
+                    }
+                }
+                else if (operandKind == constKind) {
+                    array<int,3> moveTuple = {operand.getConst(),regNoOfPhi,1};
+                    bodyBlockMoves.push_back(moveTuple);
+                }
+            }
+            if(!bodyBlockMoves.empty())
+                insertMove(currentBlock->DTForwardEdges.at(0),bodyBlockMoves);
+
+        }
+        else if(blkKind == blk_if_end)
+        {
+            vector<array<int,3>> thenBlockMoves;
+            vector<array<int,3>> elseBlockMoves;
+            //the last value is to check whether the first number is const or regNum
+            vector<array<int,3>> splitBlockMoves;
+
+            //For every phi code, check whether allocated register is the same
+            for(auto phiCode : childBlockIter->phiCodes)
+            {
+                if(phiCode->isElimiated())
+                    continue;
+                int regNoOfPhi = phiCode->getRegNo();
+                //for operand 1, 2
+                for(int index=1 ; index < 3 ; index++)
+                {
+                    Result operand = phiCode->operands.at(index);
+                    Kind operandKind = operand.getKind();
+                    if(operandKind == instKind)
+                    {
+                        shared_ptr<IRFormat> operandCode = operand.getInst();
+                        int operandCodeReg = operandCode->getRegNo();
+                        if(operandCodeReg != regNoOfPhi)
+                        {
+                            //if there is no else block for dealing with second operand(children is just two(if.then and if.end)
+                            if(currentBlock->DTForwardEdges.size() < 3 && index == 2)
+                            {
+                                array<int,3> moveTuple = {operandCodeReg,regNoOfPhi,0};
+                                splitBlockMoves.push_back(moveTuple);
+                            }
+                            else
+                            {
+                                //Insert Move at the end of then or else block(First collect and do the job for all)
+                                array<int,3> moveTuple = {operandCodeReg,regNoOfPhi,0};
+                                if(index == 1)
+                                    thenBlockMoves.push_back(moveTuple);
+                                else if(index == 2)
+                                    elseBlockMoves.push_back(moveTuple);
+                            }
+                        }
+                    }
+                    else if(operandKind == varKind)
+                    {
+                        shared_ptr<Symbol> operandSymbol = operand.getVarSym();
+                        int operandSymReg = operandSymbol->getRegNo();
+                        if(operandSymReg != regNoOfPhi)
+                        {
+                            //if there is no else block for dealing with second operand(children is just two(if.then and if.end)
+                            if(currentBlock->DTForwardEdges.size() < 3 && index == 2)
+                            {
+                                array<int,3> moveTuple = {operandSymReg,regNoOfPhi,0};
+                                splitBlockMoves.push_back(moveTuple);
+                            }
+                            else
+                            {
+                                //Insert Move at the end of then or else block(First collect and do the job for all)
+                                array<int,3> moveTuple = {operandSymReg,regNoOfPhi,0};
+                                if(index == 1)
+                                    thenBlockMoves.push_back(moveTuple);
+                                else if(index == 2)
+                                    elseBlockMoves.push_back(moveTuple);
+                            }
+                        }
+                    }
+                    else if(operandKind == constKind)
+                    {
+                        //if there is no else block for dealing with second operand(children is just two(if.then and if.end)
+                        if(currentBlock->DTForwardEdges.size() < 3 && index == 2)
+                        {
+                            array<int,3> moveTuple = {operand.getConst(),regNoOfPhi,1};
+                            splitBlockMoves.push_back(moveTuple);
+                        }
+                        else
+                        {
+                            //Insert Move at the end of then or else block(First collect and do the job for all)
+                            array<int,3> moveTuple = {operand.getConst(),regNoOfPhi,1};
+                            if(index == 1)
+                                thenBlockMoves.push_back(moveTuple);
+                            else if(index == 2)
+                                elseBlockMoves.push_back(moveTuple);
+                        }
+                    }
+                }
+
+            }
+
+            if(!thenBlockMoves.empty())
+                insertMove(currentBlock->DTForwardEdges.at(0),thenBlockMoves);
+            if(!elseBlockMoves.empty())
+                insertMove(currentBlock->DTForwardEdges.at(1),elseBlockMoves);
+            if(!splitBlockMoves.empty())
+            {
+                shared_ptr<BasicBlock> splitBlock(new BasicBlock(parser->newBasicBlock(),blk_move));
+                int splitBlockNum = splitBlock->getBlockNum();
+                //Branch Operand;
+                Result splitBlockOperand;splitBlockOperand.setBlock(splitBlock->getBlockNum());
+                Result existingBlockOperand = currentBlock->irCodes.back()->operands.at(1);
+                currentBlock->irCodes.back()->operands.at(1) = splitBlockOperand;
+                shared_ptr<IRFormat> ir_line = NULL;
+                for(auto splitBlockMove : splitBlockMoves)
+                {
+                    //Insert Move at the end of currentBlock
+                    ir_line = getMoveCode(splitBlockNum,splitBlockMove.at(0),splitBlockMove.at(1),splitBlockMove.at(2));
+                    splitBlock->irCodes.push_back(ir_line);
+                }
+                ir_line = getUncondBranchCode(splitBlockNum,existingBlockOperand.getBlockNo());
+                splitBlock->irCodes.push_back(ir_line);
+
+                //Fixup CFG
+                shared_ptr<BasicBlock> endBlock = currentBlock->CFGForwardEdges.back();
+                currentBlock->CFGForwardEdges.pop_back();
+                currentBlock->CFGForwardEdges.push_back(splitBlock);
+                splitBlock->CFGForwardEdges.push_back(endBlock);
+
+                //Fixup DT
+                endBlock = currentBlock->DTForwardEdges.back();
+                currentBlock->DTForwardEdges.pop_back();
+                currentBlock->DTForwardEdges.push_back(splitBlock);
+                splitBlock->DTForwardEdges.push_back(endBlock);
+                parser->updateBlockInfo(functionName,splitBlock);
+            }
+        }
+        RemovePhi(childBlockIter);
+    }
+
+}
+
+void RegAllocation::insertMove(shared_ptr<BasicBlock> currentBlock, vector<array<int,3>> blockMoves)
+{
+    //Go down to the end of the block;
+    while(!currentBlock->DTForwardEdges.empty())
+        currentBlock = currentBlock->DTForwardEdges.back();
+
+    //Insert move before unconditional branch
+    shared_ptr<IRFormat> branchInstr = NULL;
+    if(!currentBlock->irCodes.empty())
+    {
+        branchInstr = currentBlock->irCodes.back();
+        if(branchInstr->getIROP() == IR_bra)
+            currentBlock->irCodes.pop_back();
+    }
+
+    for(auto blockMove : blockMoves)
+    {
+        shared_ptr<IRFormat> ir_line = getMoveCode(currentBlock->getBlockNum(),blockMove.at(0),blockMove.at(1),blockMove.at(2));
+        currentBlock->irCodes.push_back(ir_line);
+    }
+    if(branchInstr != NULL && branchInstr->getIROP() == IR_bra)
+        currentBlock->irCodes.push_back(branchInstr);
+}
+
+shared_ptr<IRFormat> RegAllocation:: getMoveCode(int blkNo, int firstReg, int secondReg, int firstConst)
+{
+    Parser *parser = Parser::instance();
+    shared_ptr<IRFormat> ir_line(new IRFormat);
+    ir_line->setBlkNo(blkNo);
+    ir_line->setLineNo(parser->newInstruction());
+    ir_line->setIROP(IR_move);
+
+    Result regOp1;
+    (firstConst == 1) ? regOp1.setConst(firstReg) : regOp1.setReg(firstReg);
+
+    ir_line->operands.push_back(regOp1);
+    Result regOp2;regOp2.setReg(secondReg);
+    ir_line->operands.push_back(regOp2);
+    return ir_line;
+}
+
+shared_ptr<IRFormat> RegAllocation::getUncondBranchCode(int blkNo, int destBlkNo)
+{
+    Parser *parser = Parser::instance();
+    shared_ptr<IRFormat> ir_line(new IRFormat);
+    ir_line->setBlkNo(blkNo);
+    ir_line->setLineNo(parser->newInstruction());
+    ir_line->setIROP(IR_bra);
+
+    Result regOp;regOp.setBlock(destBlkNo);
+    ir_line->operands.push_back(regOp);
+    return ir_line;
+}
 
 void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unordered_map<int,shared_ptr<Node>> &liveSet)
 {
@@ -174,8 +434,11 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
         if(isDefInstr(code->getIROP())) {
             if(nodeIter == nodeList.end())
             {
-                node = std::make_shared<Node>(nodeNum, code);
-                nodeList.insert({nodeNum, node});
+                //If there were usage of that code, there should be node -> dead Code elimination
+                code->elimiate();
+                continue;
+                //node = std::make_shared<Node>(nodeNum, code);
+                //nodeList.insert({nodeNum, node});
             }
             else
                 node = nodeIter->second;
@@ -219,7 +482,7 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
                 }
                 if(candidateNode == NULL)
                 {
-                    shared_ptr<Symbol> sym = parser->symTableLookup(functionName,varName,sym_var);
+                    shared_ptr<Symbol> sym = operand.getVarSym();//parser->symTableLookup(functionName,varName,sym_var);
                     node = std::make_shared<Node>(numOfVarNodes, varName,sym);
                     nodeList.insert({numOfVarNodes, node});
                     numOfVarNodes++;
@@ -245,8 +508,11 @@ void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSe
         shared_ptr<Node> node;
         if(nodeIter == nodeList.end())
         {
-            node = std::make_shared<Node>(nodeNum, code);
-            nodeList.insert({nodeNum, node});
+            //If there were usage of that code, there should be node -> dead Code elimination
+            code->elimiate();
+            continue;
+            //node = std::make_shared<Node>(nodeNum, code);
+            //nodeList.insert({nodeNum, node});
         }
         else
             node = nodeIter->second;
@@ -289,7 +555,7 @@ void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSe
             }
             if(candidateNode == NULL)
             {
-                shared_ptr<Symbol> sym = parser->symTableLookup(functionName,varName,sym_var);
+                shared_ptr<Symbol> sym = operand.getVarSym();//parser->symTableLookup(functionName,varName,sym_var);
                 node = std::make_shared<Node>(numOfVarNodes, varName,sym);
                 nodeList.insert({numOfVarNodes, node});
                 numOfVarNodes++;
