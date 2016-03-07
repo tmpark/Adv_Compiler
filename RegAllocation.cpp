@@ -435,10 +435,10 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
             if(nodeIter == nodeList.end())
             {
                 //If there were usage of that code, there should be node -> dead Code elimination
-                code->elimiate();
-                continue;
-                //node = std::make_shared<Node>(nodeNum, code);
-                //nodeList.insert({nodeNum, node});
+                //code->eliminate();
+                //continue;
+                node = std::make_shared<Node>(nodeNum, code);
+                nodeList.insert({nodeNum, node});
             }
             else
                 node = nodeIter->second;
@@ -509,10 +509,10 @@ void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSe
         if(nodeIter == nodeList.end())
         {
             //If there were usage of that code, there should be node -> dead Code elimination
-            code->elimiate();
-            continue;
-            //node = std::make_shared<Node>(nodeNum, code);
-            //nodeList.insert({nodeNum, node});
+            //code->eliminate();
+            //continue;
+            node = std::make_shared<Node>(nodeNum, code);
+            nodeList.insert({nodeNum, node});
         }
         else
             node = nodeIter->second;

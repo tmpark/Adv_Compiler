@@ -172,7 +172,7 @@ public:
     int getRegNo(){return regNo;};
 
     bool isElimiated(){return elimiated;};
-    void elimiate(){elimiated = true;};
+    void eliminate(){ elimiated = true;};
 
 private:
     bool elimiated;

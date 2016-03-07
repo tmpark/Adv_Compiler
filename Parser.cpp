@@ -864,10 +864,13 @@ Result Parser::expression() {
             if(isTerm(scannerSym))
             {
                 y = term();
-
+                if(irOp == IR_sub)//if(y.getKind() == instKind && y.getInst()->getLineNo() == 15)
+                {
+                    int temp = 1;
+                }
                 //Find the same expression in the list
 
-                result = emitIntermediate(irOp, {x, y});
+                result = emitIntermediate(irOp, {result, y});
             }
             else
                 Error("expression",{"term"});
@@ -895,7 +898,7 @@ Result Parser::term()
             if(isFactor(scannerSym))
             {
                 y = factor();
-                result = emitIntermediate(irOp,{x,y});
+                result = emitIntermediate(irOp,{result,y});
             }
             else
                 Error("term",{"factor"});

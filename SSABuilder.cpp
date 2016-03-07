@@ -30,7 +30,7 @@ void SSABuilder:: prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedIn
         currentDefInfo = defInfo;
         definedInfoList = definedInfoListIter->second;
         stack<DefinedInfo> actualDefinedInfoList = definedInfoList;
-        while(actualDefinedInfoList.top().isLocked())
+        while(!actualDefinedInfoList.empty() && actualDefinedInfoList.top().isLocked())
             actualDefinedInfoList.pop();
 
         if(actualDefinedInfoList.empty()) //There was def but no longer exist because that def is inner scope and popped

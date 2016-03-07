@@ -38,7 +38,7 @@ int main() {
     //11:inner if-while  and vice versa(unlimited iteration)
     //1,5,7,8,9,10,11,12,14,17,19,21,22,23,24,25,26,27,28,29,30,31 : No func Call
 
-    for(int i = 11 ; i < 12 ; i++)
+    for(int i = 24 ; i < 25 ; i++)
     {
         if(i == 4)
             continue;
