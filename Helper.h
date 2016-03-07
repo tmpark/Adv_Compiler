@@ -257,7 +257,8 @@ private:
 
 class Result{
 public:
-    Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;}
+    Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;
+        diffFuncLoc = false;}
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
@@ -290,6 +291,9 @@ public:
     bool isArrayInst(){return array;};
     void setConstPropVar(string arg){constPropVar = arg;};
     string getConstPropVar(){return constPropVar;};
+    void setDiffFuncLoc(string name, shared_ptr<Symbol> sym){ diffFuncLoc = true; funcName = name; funcSym = sym;};
+    bool isDiffFuncLoc(){return diffFuncLoc;};
+    string getDiffFuncName(){return funcName;};
 
 private:
     Kind kind;
@@ -304,6 +308,10 @@ private:
     shared_ptr<IRFormat> inst;
     bool array;
     int blockNo;
+    bool diffFuncLoc;
+    string funcName;
+    shared_ptr<Symbol> funcSym;
+
     IROP relOp ;
     int fixLoc;
     int regNo;

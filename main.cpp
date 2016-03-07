@@ -7,6 +7,7 @@ int main() {
     string folder = "/home/tmpark/ClionProjects/Adv_Compiler/test/";
     string graphFolder = "/home/tmpark/ClionProjects/Adv_Compiler/graph/";
     string binaryFolder = "/home/tmpark/ClionProjects/Adv_Compiler/binary/";
+    string simulator = "DLX";
     string sourceFileFormat = ".txt";
     string graphFileName = "graph.vcg";
     string xvcg = "xvcg -font rk24";
@@ -33,9 +34,11 @@ int main() {
 
     //1~35
     //9:inner if
-    //10:inner while
+    //10:inner while(unlimited iteration)
+    //11:inner if-while  and vice versa(unlimited iteration)
+    //1,5,7,8,9,10,11,12,14,17,19,21,22,23,24,25,26,27,28,29,30,31 : No func Call
 
-    for(int i = 1 ; i < 2 ; i++)
+    for(int i = 11 ; i < 12 ; i++)
     {
         if(i == 4)
             continue;
@@ -93,12 +96,19 @@ int main() {
             regAlloc.reset();
             index++;
         }
+
+
         CodeGeneration codeGeneration(functionList);
         codeGeneration.doCodeGen();
         codeGeneration.writeOutCode(binaryFolder+sourceFileName + "/",sourceFileName);
 
-        //string visualizeGraph = xvcg + " " + folder + graphFileName;
-        //system(visualizeGraph.c_str());
+        string executable = binaryFolder + sourceFileName + "/" + sourceFileName + ".out";
+        string execCommand = "java -classpath " + binaryFolder + " " + simulator + " " + executable;
+
+        cout << sourceFileName << "'s output: " <<endl;
+        system(execCommand.c_str());
+        cout << endl;
+
         //parser->printIRCodes(parser->IRCodes); //Debug
         //parser->printSymbolTable(); //Debug
         parser->closeFile();

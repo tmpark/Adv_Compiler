@@ -469,6 +469,7 @@ void Parser::whileStatement() {
             ssaBuilder.startJoinBlock(currentBlock->getBlockKind(),currentBlock->getBlockNum());
             //After the condition, also new block starts
             finalizeAndStartNewBlock(blk_while_body, true, true,true); //while block automatically dominated by cond block
+            ssaBuilder.protectDef();
 
             if(scannerSym == doToken)
             {
@@ -511,15 +512,15 @@ void Parser::whileStatement() {
                         {
                             //Phi is also kind of definition(defined kind: inst)
 
-                            string targetOperand = code->operands.at(0).getVariableName();
+                            string targetOperandName = code->operands.at(0).getVariableName();
                             shared_ptr<Symbol> targetOperandSym = code->operands.at(0).getVarSym();
                             Result definedOperand;
                             definedOperand.setInst(code);
 
-                            DefinedInfo defInfo(currentBlock->getBlockNum(),targetOperand);
+                            DefinedInfo defInfo(currentBlock->getBlockNum(), targetOperandName);
                             defInfo.setInst(code->getLineNo(),code);
 
-                            ssaBuilder.prepareForProcess(targetOperand,targetOperandSym, defInfo);
+                            ssaBuilder.prepareForProcess(targetOperandName, targetOperandSym, defInfo);
                             for(auto &operand : code->operands)
                             {
                                 if(operand.getKind() == errKind)
@@ -532,13 +533,15 @@ void Parser::whileStatement() {
                                         operand.setVariable(defJustBefore.getVar(), defJustBefore.getVarSym());
                                         operand.setDefInst(defJustBefore.getDefinedInstOfVar());
                                     }
-                                    else if(kind == constKind)
+                                    else if(kind == constKind) {
                                         operand.setConst(defJustBefore.getConst());
+                                        operand.setConstPropVar(targetOperandName);
+                                    }
                                 }
                             }
                             ssaBuilder.insertDefinedInstr();
                             //If there is outer join block propagate
-                            emitOrUpdatePhi(targetOperand,definedOperand);
+                            emitOrUpdatePhi(targetOperandName, definedOperand);
                         }
                         loopDepth--;
                         //When completely out of while block, do the cse for load
@@ -579,6 +582,7 @@ void Parser::ifStatement() {
             if(!finalizeAndStartNewBlock(blk_if_then, true, true,true)) //Automatically dominated by previous block
                 currentBlock->setBlockKind(blk_if_then);
             ssaBuilder.currentBlockKind.push(blk_if_then);
+            ssaBuilder.protectDef();
             if(scannerSym == thenToken)
             {
                 Next();
@@ -598,6 +602,7 @@ void Parser::ifStatement() {
                         cseTracker.revertToOuter(dominatingBlockNum,false);
                         //The start of else is new block
                         finalizeAndStartNewBlock(blk_if_else, false, false,false);//if then is performed it should avoid else
+                        ssaBuilder.protectDef();
                         ssaBuilder.currentBlockKind.pop();
                         ssaBuilder.currentBlockKind.push(blk_if_else);
                         updateBlockForDT(dominatingBlockNum); //else should be dominated by condition block
@@ -768,6 +773,7 @@ Result Parser::funcCall() {
             else
             {
                 Result jumpLocation;jumpLocation.setConst(locationOfFunc);
+                jumpLocation.setDiffFuncLoc(functionName, functionSym);
                 result = emitIntermediate(IR_bra,{jumpLocation});
             }
         }
@@ -1172,11 +1178,21 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
             operandIndex = 1;
         operandToChange = &ir_line->operands.at(operandIndex);
 
-        //only care about jump to the inst more than 1(no jump to main) and direct jump(do not allow jump to location stored in address)
-        if(operandToChange->getConst() >= 0 && operandToChange->getKind() == constKind)
+        //direct jump(do not allow jump to location stored in address)
+        if(operandToChange->getKind() == constKind)
         {
-            shared_ptr<BasicBlock> tempBlock = instructionBlockPair.at(operandToChange->getConst());
-            int blockNum = tempBlock->getBlockNum();
+            int blockNum;
+            if(operandToChange->isDiffFuncLoc())
+            {
+                string funcName = operandToChange->getDiffFuncName();
+                vector<shared_ptr<BasicBlock>> diffFuncBlockList = functionList.at(funcName);
+                blockNum = diffFuncBlockList.at(0)->getBlockNum();
+            }
+            else
+            {
+                shared_ptr<BasicBlock> tempBlock = instructionBlockPair.at(operandToChange->getConst());
+                blockNum = tempBlock->getBlockNum();
+            }
             operandToChange->setBlock(blockNum);
             //ir_line.operands.at(operandIndex) = operandToChange;
         }
@@ -1875,91 +1891,63 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
             vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
             for (int i = conditionBlockNum; i < currentBlock->getBlockNum(); i++) {
                 //for block number i,
-
                 shared_ptr<BasicBlock> targetBlock = basicBlockList.at(i - ssaBuilder.getStartBlock());
-                for (auto &irCode : targetBlock->irCodes) {
-                    for (auto &operand : irCode->operands) {
-                        Result defJustBefore = ssaBuilder.getDefBeforeInserted();
-                        Kind defJustBeforeKind = defJustBefore.getKind();
-                        if (defJustBeforeKind == operand.getKind()) {
-                            switch (defJustBeforeKind) {
-                                case constKind:
-                                    if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()) {
-                                        int cost = phiCode->getCost();
-                                        phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode);
-                                    }
-                                    break;
-                                case varKind:
-                                    if (defJustBefore.getVariableName() == operand.getVariableName() &&
-                                        defJustBefore.getDefInst() == operand.getDefInst()){
-                                        int cost = phiCode->getCost();
-                                        phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode);
-                                    }
-
-                                    break;
-                                case instKind:
-                                    if (defJustBefore.getInst()->getLineNo() == operand.getInst()->getLineNo())
-                                    {
-                                        int cost = phiCode->getCost();
-                                        phiCode->setCost(cost + pow(10,loopDepth));
-                                        operand.setInst(phiCode);
-                                    }
-                                    break;
-                            }
-
-                        }
-                    }
-                }
+                defChangedToPhi(x,phiCode,targetBlock->irCodes);
+                defChangedToPhi(x,phiCode,targetBlock->phiCodes);
             }
-
-
             //current Block
-            for (auto &irCode : currentBlock->irCodes) {
-                for (auto &operand : irCode->operands) {
-                    Result defJustBefore = ssaBuilder.getDefBeforeInserted();
-                    Kind defJustBeforeKind = defJustBefore.getKind();
-                    if (defJustBeforeKind == operand.getKind()) {
-                        switch (defJustBeforeKind) {
-                            case constKind:
-                                if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()){
-                                    int cost = phiCode->getCost();
-                                    phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode);
-                                }
-
-                                break;
-                            case varKind:
-                                if (defJustBefore.getVariableName() == operand.getVariableName() &&
-                                    defJustBefore.getDefInst() == operand.getDefInst())
-                                {
-                                    int cost = phiCode->getCost();
-                                    phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode);
-                                }
-
-                                break;
-                            case instKind:
-                                if (defJustBefore.getInst()->getLineNo() == operand.getInst()->getLineNo())
-                                {
-                                    int cost = phiCode->getCost();
-                                    phiCode->setCost(cost + pow(10,loopDepth));
-                                    operand.setInst(phiCode);
-                                }
-
-                                break;
-                        }
-
-                    }
-                }
-            }
+            defChangedToPhi(x,phiCode,currentBlock->irCodes);
+            defChangedToPhi(x,phiCode,currentBlock->phiCodes);
             IRCodes.push_back(phiCode);
             IRpc++;
         }
 
     }
 }
+
+void Parser:: defChangedToPhi(string x,shared_ptr<IRFormat> phiCode, vector<shared_ptr<IRFormat>> irCodes)
+{
+    for (auto &irCode : irCodes) {
+        for (auto &operand : irCode->operands) {
+            Result defJustBefore = ssaBuilder.getDefBeforeInserted();
+            Kind defJustBeforeKind = defJustBefore.getKind();
+            if (defJustBeforeKind == operand.getKind()) {
+                switch (defJustBeforeKind) {
+                    case constKind:
+                        if (defJustBefore.getConst() == operand.getConst()&& x == operand.getConstPropVar()) {
+                            int cost = phiCode->getCost();
+                            phiCode->setCost(cost + pow(10,loopDepth));
+                            operand.setInst(phiCode);
+                        }
+                        break;
+                    case varKind:
+                        if (defJustBefore.getVariableName() == operand.getVariableName() &&
+                            defJustBefore.getDefInst() == operand.getDefInst()){
+                            int cost = phiCode->getCost();
+                            phiCode->setCost(cost + pow(10,loopDepth));
+                            operand.setInst(phiCode);
+                        }
+
+                        break;
+                    case instKind:
+                        if (defJustBefore.getInst()->getLineNo() == operand.getInst()->getLineNo())
+                        {
+                            int cost = phiCode->getCost();
+                            phiCode->setCost(cost + pow(10,loopDepth));
+                            operand.setInst(phiCode);
+                        }
+                        break;
+                }
+
+            }
+        }
+
+    }
+}
+
+
+
+
 
 
 void Parser::cseForLoad(int dominatingBlockNum) {

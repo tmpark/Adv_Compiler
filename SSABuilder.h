@@ -34,7 +34,7 @@ public:
     int getConst(){return constVal;};
     Kind getKind(){return kind;};
     int getBlkNum(){return blkNum;};
-    void setPreserved(bool arg){ locked = arg;};
+    void setlock(bool arg){ locked = arg;};
     bool isLocked(){return locked;};
     shared_ptr<Symbol> getVarSym(){return varSym;};
 
@@ -73,6 +73,7 @@ public:
     vector<shared_ptr<IRFormat>> currentPhiCodes;
 
     int getStartBlock(){return startBlock;};
+    void protectDef();
 
 private:
     //Function wide information

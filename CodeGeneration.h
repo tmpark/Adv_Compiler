@@ -36,6 +36,9 @@ private:
     std::array<int32_t, CODEBUFSIZE> buf;
     int loc;
     std::fstream fileStream;
+
+    unordered_map<int,int> startLocOfBlock;
+    unordered_map<int,int> locationTobeFixed;
 };
 
 

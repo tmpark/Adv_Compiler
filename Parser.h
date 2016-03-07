@@ -137,6 +137,7 @@ private:
     int addSymInTable(){return numOfSym++;}; //Fixme: fake implementation
     void symbolTableUpdate(string var,shared_ptr<Symbol> varSym);
 
+    void defChangedToPhi(string x,shared_ptr<IRFormat> phiCode, vector<shared_ptr<IRFormat>> irCodes);
 
     //SSA
     SSABuilder ssaBuilder;

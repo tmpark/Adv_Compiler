@@ -3,6 +3,7 @@
 //
 
 #include "CodeGeneration.h"
+#include <bitset>
 
 CodeGeneration :: CodeGeneration(std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList){
     this->functionList = functionList;
@@ -16,10 +17,25 @@ void CodeGeneration::doCodeGen()
     vector<shared_ptr<BasicBlock>> blockList = functionList.at("main");
     shared_ptr<BasicBlock> firstBlock = blockList.at(0);
     genCodeForBlock(firstBlock);
-
+    //Fixup
+    for(auto fixInfo : locationTobeFixed)
+    {
+        int fixLoc = fixInfo.first;
+        int blockTobeFixed = fixInfo.second;
+        int newLoc = startLocOfBlock.at(blockTobeFixed);
+        buf[fixLoc] = buf[fixLoc] & 0xFFFF0000;
+        buf[fixLoc] = buf[fixLoc] | newLoc-fixLoc & 0x0000FFFF;
+    }
+    /*
+    for(int i = 0 ; i < loc ; i++)
+    {
+        cout << bitset<32>(buf.at(i)) << endl;
+    }*/
 }
 void CodeGeneration::genCodeForBlock(shared_ptr<BasicBlock> currentBlock)
 {
+    startLocOfBlock.insert({currentBlock->getBlockNum(),loc});
+
     //Generate Each code
     for(auto code : currentBlock->irCodes)
     {
@@ -72,6 +88,18 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
         }
         else if(irOp == IR_bra) //should distinguish whether it is Normal jump or func call
         {
+            //Function call
+            if(firstOperand.isDiffFuncLoc())
+            {
+
+            }
+            else//General unconditional branch
+            {
+                int firstOperandVal = firstOperand.getBlockNo();
+                int opCode = OP_BEQ;
+                locationTobeFixed.insert({loc,firstOperandVal});
+                assembleAndPutCode(opCode,0,firstOperandVal);
+            }
 
         }
         else if(irOp == IR_write)
@@ -104,8 +132,8 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
 
             OPFORMAT opFormat;
             if(isFirstOperandConst) {
-                assembleAndPutCode(OP_ADDI, destReg, 0, firstOperand.getConst());
-                firstOperandReg = destReg;
+                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
+                firstOperandReg = REG_PROXY;
             }
             else
                 firstOperandReg = firstOperand.getReg();
@@ -128,14 +156,27 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
         else if(irOp == IR_move)
         {
 
+            int firstOperandReg;
+            int secondOperandReg = secondOperand.getReg();
+            int destReg = secondOperandReg;
+            if(isFirstOperandConst) {
+                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
+                firstOperandReg = REG_PROXY;
+            }
+            else
+                firstOperandReg = firstOperand.getReg();
+
+            OPFORMAT opFormat = OP_F2;
+            int opCode = OP_ADD;
+            assembleAndPutCode(opCode,destReg,0,firstOperandReg);
         }
         else if(irOp == IR_bne || irOp == IR_beq || irOp == IR_ble || irOp == IR_blt || irOp == IR_bge|| irOp == IR_bgt)
         {
             int firstOperandReg = firstOperand.getReg();
-            //Fixme::block number should be fixed according to real location
             int secondOperandVal = secondOperand.getBlockNo();
             OPFORMAT opFormat = OP_F1;
             int opCode = irToOp(irOp,opFormat);
+            locationTobeFixed.insert({loc,secondOperandVal});
             assembleAndPutCode(opCode,firstOperandReg,secondOperandVal);
         }
         return;
@@ -272,11 +313,11 @@ void CodeGeneration::PutF3(int op, int c) {
 
 void CodeGeneration::writeOutCode(const string &binaryFolder,const string &sourceFileName)
 {
-    Parser *parser = Parser::instance();
     string formatName = ".out";
     RC rc = -1;
     string fileName = binaryFolder +  sourceFileName + formatName;
 
+    destroyFile(fileName);
     rc = createFile(fileName);
     if (rc == -1)
         return;
@@ -287,6 +328,7 @@ void CodeGeneration::writeOutCode(const string &binaryFolder,const string &sourc
     }
 
     fileStream.write((char*)buf.data(),loc*sizeof(int32_t));
+    fileStream.close();
     return;
 }
 
