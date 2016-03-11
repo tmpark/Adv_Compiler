@@ -38,7 +38,7 @@ public:
     static Parser* instance();
     RC openFile(const std::string &folder, const std::string &sourceFileName, const std::string &sourceFileFormat);    RC closeFile();
     void startParse();
-    void printIRCodes(vector<shared_ptr<IRFormat>> codes);
+    void printIRCodes(string functionName,vector<shared_ptr<IRFormat>> codes);
     void printSymbolTable();
     void printBlock();
     void createControlFlowGraph(const string &graphFolder,const string &sourceFileName,const string version);
@@ -52,11 +52,24 @@ public:
         return table.getNumOfParam();
     };
 
-    string getCodeString(shared_ptr<IRFormat> code);
+    string getCodeString(string functionName, shared_ptr<IRFormat> code);
     std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> getFuncList(){return functionList;};
     SymTable getSymTable(string functionName){
         return symTableList.at(functionName);
     };
+
+    void setNumOfVirtualRegs(string functionName, int numOfVRegs)
+    { symTableList.at(functionName).setNumOfVirtualRegs(numOfVRegs);};
+    int getNumOfVirtualRegs(string functionName){return symTableList.at(functionName).getNumOfVirtualRegs();};
+    void insertRegUsed(string functionName, int arg){
+        if(arg < NUM_OF_DATA_REGS)
+            arg = arg + REG_DATA;
+        else
+            arg = arg - NUM_OF_DATA_REGS + REG_VIRTUAL;
+        SymTable *symTable = &symTableList.at(functionName);
+        symTable->regUsedList.push_back(arg);
+    };
+
     shared_ptr<Symbol> symTableLookup(string scope,std::string symbol,SymType symType);
     int newInstruction(){return IRpc++;};
     int newBasicBlock(){return numOfBlock++;};

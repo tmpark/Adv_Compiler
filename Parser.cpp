@@ -3,6 +3,7 @@
 //
 
 #include "Parser.h"
+#include "Helper.h"
 #include <iomanip>
 
 Parser* Parser::_parser = 0;
@@ -251,12 +252,31 @@ void Parser::funcDecl(){
                     if(symType == sym_proc) //Procedure type does not have explicit return
                     {
                         //Return code emission
-                        Result offset = getAddressInStack(RETURN_IN_STACK);
-                        emitIntermediate(IR_bra,{offset});
+                        //Result offset = getAddressInStack(RETURN_IN_STACK);
+                        //emitIntermediate(IR_bra,{offset});
                     }
 
                     //At the end of function means end of the block
                     finalizeAndStartNewBlock(blk_entry, false,false,false);
+
+                    //give information that defined inst of global variable
+                    SymTable globalSymTable = symTableList.at(GLOBAL_SCOPE_NAME);
+                    for(auto symIter : globalSymTable.varSymbolList)
+                    {
+                        string globalSymName = symIter.first;
+                        shared_ptr<Symbol> globalSym = symIter.second;
+                        if(globalSym->getSymType() == sym_var)
+                        {
+                            DefinedInfo globalDefInfo = ssaBuilder.getDefinedInfo(globalSymName);
+                            Kind defKind = globalDefInfo.getKind();
+                            if(defKind != errKind) //There was definition for global variable
+                            {
+                                SymTable *symTable = &symTableList.at(symName);
+                                symTable->definedGlobalVal.insert({symIter.first,globalDefInfo});
+                            }
+                        }
+
+                    }
 
                     scopeStack.pop(); //Go out of function
 
@@ -431,9 +451,9 @@ void Parser::returnStatement() {
             x = expression();
             Result ret;ret.setReg(REG_RET_VAL);
             emitIntermediate(IR_miu,{x,ret});
-            Result offset = getAddressInStack(RETURN_IN_STACK);
-            Result x = emitIntermediate(IR_load,{offset});
-            emitIntermediate(IR_bra,{x});
+            //Result offset = getAddressInStack(RETURN_IN_STACK);
+            //Result x = emitIntermediate(IR_load,{offset});
+            //emitIntermediate(IR_bra,{x});
         }
 
     }
@@ -735,13 +755,14 @@ Result Parser::funcCall() {
                             if(isExpression(scannerSym))
                             {
                                 x = expression();
-                                if(i < NUM_OF_PARAM_REG)
+                                if(i < NUM_OF_PARAM_REGS)
                                 {
+                                    reg_param.setReg(REG_PARAM + i);
                                     emitIntermediate(IR_miu,{x,reg_param});
                                 }
                                 else{
                                     reg_param.setReg(REG_SP);
-                                    emitIntermediate(IR_store,{x,reg_param});
+                                    emitIntermediate(IR_miu,{x,reg_param});
                                 }
                                 i++;
                             }
@@ -772,9 +793,89 @@ Result Parser::funcCall() {
                 //General Fucntion
             else
             {
+
+                //For all global variable
+                SymTable mainSymTable = symTableList.at(GLOBAL_SCOPE_NAME);
+                for(auto symbol : mainSymTable.varSymbolList)
+                {
+                    string symName = symbol.first;
+                    shared_ptr<Symbol> sym = symbol.second;
+                    DefinedInfo defInfo = ssaBuilder.getDefinedInfo(symName);
+                    Result storedValue;
+                    Kind defKind = defInfo.getKind();
+                    //store globals having been defined
+                    if(defKind != errKind)
+                    {
+                        if(defKind == constKind)
+                        {
+                            storedValue.setConst(defInfo.getConst());
+                            storedValue.setConstPropVar(symName);
+                        }
+                        else if(defKind == varKind) {
+                            storedValue.setVariable(defInfo.getVar(), defInfo.getVarSym());
+                            storedValue.setDefInst(defInfo.getDefinedInstOfVar());
+                        }
+                        else if(defKind == instKind)
+                            storedValue.setInst(defInfo.getInst());
+                        int loc = sym->getBaseAddr();
+                        Result operandGP;operandGP.setReg(REG_GP);
+                        Result operandLoc;operandLoc.setConst(loc);
+                        Result addrToStore = emitIntermediate(IR_add,{operandLoc,operandGP});
+                        emitIntermediate(IR_store,{storedValue,addrToStore});
+                    }
+                }
+
                 Result jumpLocation;jumpLocation.setConst(locationOfFunc);
+                /*
                 jumpLocation.setDiffFuncLoc(functionName, functionSym);
+                //For all global variable
+                SymTable mainSymTable = symTableList.at(GLOBAL_SCOPE_NAME);
+                for(auto symbol : mainSymTable.varSymbolList)
+                {
+                    DefinedInfo defInfo = ssaBuilder.getDefinedInfo(symbol.first);
+                    if(defInfo.getKind() != errKind)
+                    {
+                        GlobalDefInfo gDefInfo = {symbol.second, defInfo};
+                        jumpLocation.globalDefInfo.insert({symbol.first,gDefInfo});
+                    }
+                }*/
                 result = emitIntermediate(IR_bra,{jumpLocation});
+                Result returnValReg; returnValReg.setReg(REG_RET_VAL);
+                emitIntermediate(IR_miu,{returnValReg,result}); //Return value get
+
+                //After branch update all global variable and make definition of it is load instruction
+                for(auto symbol : mainSymTable.varSymbolList)
+                {
+                    string symName = symbol.first;
+                    shared_ptr<Symbol> sym = symbol.second;
+
+                    //After function call, all array load should be killed
+                    if(sym->getSymType() == sym_array)
+                    {
+                        shared_ptr<IRFormat> irCode(new IRFormat);
+                        irCode->setBlkNo(currentBlock->getBlockNum());
+                        irCode->setLineNo(-1);
+                        irCode->setIROP(IR_store);
+                        Result definedVal;definedVal.setVariable(symName,sym);
+                        irCode->operands = {Result(),definedVal};
+                        shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(IR_store);
+                        irCode->setPreviousSameOpInst(previousSameOpInst);
+                        cseTracker.setCurrentInst(IR_store,irCode);
+                    }
+                    else//All global variable should be reinitialized
+                    {
+                        DefinedInfo defInfo;
+                        int loc = sym->getBaseAddr();
+                        Result operandGP;operandGP.setReg(REG_GP);
+                        Result operandLoc;operandLoc.setConst(loc);
+                        Result addrToLoad = emitIntermediate(IR_add,{operandLoc,operandGP});
+                        Result loadedVal = emitIntermediate(IR_load,{addrToLoad});
+                        defInfo.setInst(loadedVal.getInst()->getLineNo(),loadedVal.getInst());
+                        ssaBuilder.prepareForProcess(symName,sym,defInfo);
+                        ssaBuilder.insertDefinedInstr();
+                    }
+
+                }
             }
         }
         else
@@ -805,6 +906,7 @@ Result Parser::assignment() {
                     if(x.isArrayInst())
                         result = emitIntermediate(IR_store,{y,x});
                     else {
+
                         result = emitIntermediate(IR_move, {y,x});
                         //No move instruction more, but return y:which is x(variable)'s phi updated value
                         emitOrUpdatePhi(x.getVariableName(), result);//For variable x
@@ -1003,7 +1105,11 @@ Result Parser::designator() {
             x.setConst(xSymbol->getBaseAddr());
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
-            y.setReg(REG_FP);//Frame pointer
+            if(scopeStack.top() == GLOBAL_SCOPE_NAME)
+                y.setReg(REG_GP);
+            else
+                y.setReg(REG_FP);//Frame pointer
+
             y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
             result = emitIntermediate(IR_adda,{y,updatedIndex});//base address + index
             result.setArrayInst(variableName);
@@ -1207,7 +1313,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     return result;
 }
 
-string Parser :: getCodeString(shared_ptr<IRFormat> code)
+string Parser :: getCodeString(string functionName,shared_ptr<IRFormat> code)
 {
     string lineString;
     int regForCode = code->getRegNo();
@@ -1231,7 +1337,7 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
         else if (operand.getKind() == varKind)
         {
             shared_ptr<Symbol> varSym = operand.getVarSym();
-            int regNo = varSym->getRegNo();
+            int regNo = varSym->getRegNo(functionName);
             if(regNo == -1)
                 result = result + tab + operand.getVariableName() + "_" + to_string(operand.getDefInst());// << "\t";
             else
@@ -1254,7 +1360,7 @@ string Parser :: getCodeString(shared_ptr<IRFormat> code)
         }
         else if(operand.getKind() == regKind)
         {
-            result = result + tab + "%" + to_string(operand.getReg());// << "\t";
+            result = result + tab + "%" + to_string(operand.getReg(functionName));// << "\t";
         }
         else {
             std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
@@ -1291,13 +1397,13 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
             for (auto code : block->phiCodes) {
                 if(code->isElimiated())
                     continue;
-                string codeString = getCodeString(code);
+                string codeString = getCodeString(function.first,code);
                 graphDrawer->writeCode(codeString);
             }
             for (auto code : block->irCodes) {
                 if(code->isElimiated())
                     continue;
-                string codeString = getCodeString(code);
+                string codeString = getCodeString(function.first,code);
                 graphDrawer->writeCode(codeString);
             }
             if (block->isCondBlock()) {
@@ -1350,13 +1456,13 @@ void Parser::createDominantGraph(const string &graphFolder,const string &sourceF
             for (auto code : block->phiCodes) {
                 if(code->isElimiated())
                     continue;
-                string codeString = getCodeString(code);
+                string codeString = getCodeString(function.first,code);
                 graphDrawer->writeCode(codeString);
             }
             for (auto code : block->irCodes) {
                 if(code->isElimiated())
                     continue;
-                string codeString = getCodeString(code);
+                string codeString = getCodeString(function.first,code);
                 graphDrawer->writeCode(codeString);
             }
             graphDrawer->writeNodeEnd();
@@ -1383,8 +1489,8 @@ void Parser::printBlock()
         {
             shared_ptr<BasicBlock> block = blockPair;
             cout<<"Block " << block->getBlockNum() << " -------------------------------------" << endl;
-            printIRCodes(block->phiCodes);
-            printIRCodes(block->irCodes);
+            printIRCodes(function.first,block->phiCodes);
+            printIRCodes(function.first,block->irCodes);
             cout<<"Forward Edge to";
             for(auto edge : block->CFGForwardEdges)
                 cout << " " << edge->getBlockNum();
@@ -1408,7 +1514,7 @@ void Parser::printBlock()
 }
 
 
-void Parser::printIRCodes(vector<shared_ptr<IRFormat>> codes)
+void Parser::printIRCodes(string functionName,vector<shared_ptr<IRFormat>> codes)
 {
 
     for(auto code : codes) {
@@ -1439,7 +1545,7 @@ void Parser::printIRCodes(vector<shared_ptr<IRFormat>> codes)
             }
             else if(operand.getKind() == regKind)
             {
-                std::cout << "%" << operand.getReg();// << "\t";
+                std::cout << "%" << operand.getReg(functionName);// << "\t";
             }
             else {
                 std::cerr << std::endl<< "No valid operand x"<< index << " : "<< operand.getKind() << std::endl;
@@ -1589,7 +1695,7 @@ void Parser::addParamSymbol(std::string symbol, size_t numOfParam, int index)
     SymTable *currentSymTable = &symTableIter->second;
     //Make symbol
     shared_ptr<Symbol> newSymbol(new Symbol(sym_param, PARAM_IN_STACK + ((int)numOfParam - 1) - index));
-
+    newSymbol->setParamIndex(index);
     //Update symtable
     currentSymTable->insertVarSym(symbol,newSymbol);
 }
@@ -1712,7 +1818,7 @@ void Parser :: FixLink(unsigned long loc)
     }
 }
 
-
+//Only for getting return address(should not be used)(return will be dealt with by code generation)
 Result Parser:: getAddressInStack(int location)
 {
     Result offset;offset.setConst(location);
@@ -1910,10 +2016,46 @@ void Parser:: emitOrUpdatePhi(string x, Result defined){                    //If
 
 void Parser:: defChangedToPhi(string x,shared_ptr<IRFormat> phiCode, vector<shared_ptr<IRFormat>> irCodes)
 {
+    Result defJustBefore = ssaBuilder.getDefBeforeInserted();
+    Kind defJustBeforeKind = defJustBefore.getKind();
     for (auto &irCode : irCodes) {
+
+        //Update global variable definition for function call
+        /*
+        if(irCode->getIROP() == IR_bra)
+        {
+            Result locationOperand = irCode->operands.at(0);
+            if(irCode->operands.at(0).isDiffFuncLoc())//For function call
+            {
+                for(auto &globalDefInfo : locationOperand.globalDefInfo)
+                {
+                    string defString = globalDefInfo.first;
+                    GlobalDefInfo *GdefInfo = &globalDefInfo.second;
+                    if(defJustBeforeKind == GdefInfo->defInfo.getKind())
+                    {
+                        switch (defJustBeforeKind) {
+                            case constKind:
+                                if (defJustBefore.getConst() == GdefInfo->defInfo.getConst() && x == defString)
+                                    GdefInfo->defInfo.setInst(phiCode->getLineNo(), phiCode);
+                                break;
+                            case varKind:
+                                if (defJustBefore.getVariableName() == GdefInfo->defInfo.getVar() &&
+                                    defJustBefore.getDefInst() == GdefInfo->defInfo.getDefinedInstOfVar())
+                                    GdefInfo->defInfo.setInst(phiCode->getLineNo(), phiCode);
+                                break;
+                            case instKind:
+                                if (defJustBefore.getInst()->getLineNo() == GdefInfo->defInfo.getInstNum())
+                                    GdefInfo->defInfo.setInst(phiCode->getLineNo(), phiCode);
+                                break;
+                        }
+                    }
+                }
+            }
+        }*/
+
+
         for (auto &operand : irCode->operands) {
-            Result defJustBefore = ssaBuilder.getDefBeforeInserted();
-            Kind defJustBeforeKind = defJustBefore.getKind();
+
             if (defJustBeforeKind == operand.getKind()) {
                 switch (defJustBeforeKind) {
                     case constKind:
@@ -1922,6 +2064,7 @@ void Parser:: defChangedToPhi(string x,shared_ptr<IRFormat> phiCode, vector<shar
                             phiCode->setCost(cost + pow(10,loopDepth));
                             operand.setInst(phiCode);
                         }
+
                         break;
                     case varKind:
                         if (defJustBefore.getVariableName() == operand.getVariableName() &&

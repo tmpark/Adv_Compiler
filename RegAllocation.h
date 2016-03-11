@@ -15,18 +15,18 @@ public:
     Kind getKind(){return nodeKind;};
     int getNodeNum(){return nodeNum;};
     int getCost(){return (nodeKind == instKind) ? inst->getCost() : varSym->getCost();};
-    void setReg(int arg){ coloredReg = arg;
+    void setReg(string argString, int arg){ coloredReg = arg;
         if(arg < NUM_OF_DATA_REGS) {
             if (nodeKind == instKind)
                 inst->setRegNo(arg + REG_DATA);
             else if (nodeKind == varKind)
-                varSym->setReg(arg + REG_DATA);
+                varSym->setReg(argString, arg + REG_DATA);
         }
         else {
             if(nodeKind == instKind)
                 inst->setRegNo(arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
             else if(nodeKind == varKind)
-                varSym->setReg(arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
+                varSym->setReg(argString, arg - NUM_OF_DATA_REGS + REG_VIRTUAL);
         }
     };
     int getReg(){return coloredReg;};

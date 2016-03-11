@@ -406,7 +406,7 @@ bool isSameOperand(Result x, Result y){
             case instKind :
                 return x.getInst()->getLineNo() == y.getInst()->getLineNo();
             case regKind :
-                return x.getReg() == y.getReg();
+                return x.getReg("") == y.getReg("");
             case blockKind :
                 return x.getBlockNo() == y.getBlockNo();
             default:

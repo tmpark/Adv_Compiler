@@ -38,7 +38,7 @@ int main() {
     //11:inner if-while  and vice versa(unlimited iteration)
     //1,5,7,8,9,10,11,12,14,17,19,21,22,23,24,25,26,27,28,29,30,31 : No func Call
 
-    for(int i = 24 ; i < 25 ; i++)
+    for(int i = 1 ; i < 35 ; i++)
     {
         if(i == 4)
             continue;
@@ -104,11 +104,11 @@ int main() {
 
         string executable = binaryFolder + sourceFileName + "/" + sourceFileName + ".out";
         string execCommand = "java -classpath " + binaryFolder + " " + simulator + " " + executable;
-
+/*
         cout << sourceFileName << "'s output: " <<endl;
         system(execCommand.c_str());
         cout << endl;
-
+*/
         //parser->printIRCodes(parser->IRCodes); //Debug
         //parser->printSymbolTable(); //Debug
         parser->closeFile();

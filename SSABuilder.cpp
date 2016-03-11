@@ -12,6 +12,27 @@ SSABuilder::SSABuilder(string functionName, int startBlock, int startInst)
     this->startInst = startInst;
 }
 
+DefinedInfo SSABuilder::getDefinedInfo(string var)
+{
+    auto definedInfoListIter = definedInfoTable.find(var);
+    if(definedInfoTable.end() == definedInfoListIter) //No information about var definition
+    {
+        DefinedInfo nullDef;
+        return nullDef;
+    }
+    else
+    {
+        stack<DefinedInfo> definedInfoList = definedInfoListIter->second;
+        if(definedInfoList.empty())
+        {
+            DefinedInfo nullDef;
+            return nullDef;
+        }
+        else
+            return definedInfoList.top();
+    }
+}
+
 void SSABuilder:: prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedInfo defInfo)
 {
     auto definedInfoListIter = definedInfoTable.find(var);
@@ -96,8 +117,8 @@ DefinedInfo SSABuilder::getDefinedInfo() {
         //Make virtual Definition(Defined at the start of a function)
         DefinedInfo symDefined(startBlock,varName);
         symDefined.setVar(varName,varSym,startInst);
-        definedInfoList.push(symDefined);
-        definedInfoTable.insert({varName, definedInfoList});
+        //definedInfoList.push(symDefined);
+        //definedInfoTable.insert({varName, definedInfoList});
         return symDefined;
     }
 
@@ -105,8 +126,8 @@ DefinedInfo SSABuilder::getDefinedInfo() {
     {
         DefinedInfo symDefined(startBlock,varName);
         symDefined.setVar(varName,varSym,startInst);
-        definedInfoList.push(symDefined);
-        definedInfoTable.at(varName) = definedInfoList;
+        //definedInfoList.push(symDefined);
+        //definedInfoTable.at(varName) = definedInfoList;
         return symDefined;
     }
 

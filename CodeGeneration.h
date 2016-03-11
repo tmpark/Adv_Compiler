@@ -17,8 +17,8 @@ public:
 
 private:
     std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList;
-    void genCodeForBlock(shared_ptr<BasicBlock> currentBlock);
-    void insertCode(shared_ptr<IRFormat> code);
+    void genCodeForBlock(string functionName, shared_ptr<BasicBlock> currentBlock);
+    void insertCode(string functionName, shared_ptr<IRFormat> code);
     void PutF1(int op, int a, int b, int c);
     void PutF2(int op, int a, int b, int c);
     void PutF3(int op, int c);
@@ -35,6 +35,7 @@ private:
 
     std::array<int32_t, CODEBUFSIZE> buf;
     int loc;
+    int numOfGlobalVar;
     std::fstream fileStream;
 
     unordered_map<int,int> startLocOfBlock;

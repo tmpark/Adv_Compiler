@@ -3,20 +3,212 @@
 //
 
 #include "CodeGeneration.h"
+#include "Helper.h"
 #include <bitset>
 
 CodeGeneration :: CodeGeneration(std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList){
     this->functionList = functionList;
     loc = 0;
+    numOfGlobalVar = 0;
 }
 
 
 void CodeGeneration::doCodeGen()
 {
+    Parser *parser = Parser :: instance();
     //Extract main block
-    vector<shared_ptr<BasicBlock>> blockList = functionList.at("main");
+    vector<shared_ptr<BasicBlock>> blockList = functionList.at(GLOBAL_SCOPE_NAME);
+
+    //Prolog for main
+    //get NumOfGlobalVar;
+
     shared_ptr<BasicBlock> firstBlock = blockList.at(0);
-    genCodeForBlock(firstBlock);
+    startLocOfBlock.insert({firstBlock->getBlockNum(),loc});
+
+    SymTable globalSymTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
+    numOfGlobalVar = globalSymTable.getNumOfVar();
+    int globalVarTop = globalSymTable.getLocalVarTop();
+    int numOfVRegs = parser->getNumOfVirtualRegs(GLOBAL_SCOPE_NAME);
+    assembleAndPutCode(OP_ADD,REG_SP,0,REG_GP);//Initialize SP as GP
+    assembleAndPutCode(OP_ADD,REG_FP,0,REG_GP);//Initialize FP as GP
+    assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*globalVarTop);//Move Stack pointer to reserve slots for global variable
+    if(numOfVRegs > 0)
+        assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*numOfVRegs);//Move Stack pointer to reserve slots for virtual register
+
+
+    genCodeForBlock(GLOBAL_SCOPE_NAME,firstBlock);
+
+    for(auto function : functionList)
+    {
+        if(function.first == GLOBAL_SCOPE_NAME)
+            continue;
+        string functionName = function.first;
+        blockList = function.second;
+        firstBlock = blockList.at(0);
+        startLocOfBlock.insert({firstBlock->getBlockNum(),loc});
+        //Fuction Prolog
+
+        //push previous fp
+        int R_a = REG_FP;
+        int R_b = REG_SP;
+        int R_c = -4;
+        assembleAndPutCode(OP_PSH, R_a, R_b, R_c);
+        //FP value become SP
+        R_c = 0;//Register 0
+        assembleAndPutCode(OP_ADD, R_a, R_b, R_c);
+        //Push return address
+        R_a = REG_RET;
+        int valC = -4;
+        assembleAndPutCode(OP_PSH, R_a, R_b, valC);
+        //Move SP to the amount of the size of all variable;
+        SymTable symTable = parser->getSymTable(functionName);
+        int localVarTop = symTable.getLocalVarTop();
+
+        if(localVarTop != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*localVarTop);//Move Stack pointer to reserve slots for global variable
+        //Move SP to the amount of virtual register
+        numOfVRegs = parser->getNumOfVirtualRegs(functionName);
+        if(numOfVRegs != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*numOfVRegs);//Move Stack pointer to reserve slots for virtual register
+
+        //Register that will be used is stored and initialize that as 0
+        vector<int> regUsedList = symTable.regUsedList;
+        for(auto regUsed : regUsedList)
+        {
+            R_a = regUsed;
+            R_b = REG_SP;
+            valC = -4;
+            assembleAndPutCode(OP_PSH, R_a, R_b, valC);
+            assembleAndPutCode(OP_ADD, R_a, REG_0, REG_0);
+        }
+
+
+
+        //Parameter passing and local variable register allocation
+        /*bool regTable[REG_DATA + NUM_OF_DATA_REGS];
+        for(int i = 0 ; i < REG_DATA + NUM_OF_DATA_REGS ; i++)
+        {
+            if(i < 4)//Predefined reg
+                regTable[i] = true;
+            regTable[i] = false;
+        }*/
+        for(auto symIter : symTable.varSymbolList)
+        {
+            shared_ptr<Symbol> sym = symIter.second;
+            SymType symType = sym->getSymType();
+            if(symType == sym_param)
+            {
+                int loc = sym->getBaseAddr();
+                int paramIndex = sym->getParamIndex();
+                int allocatedReg = sym->getRegNo(functionName);
+                if(allocatedReg != -1)
+                {
+                    //regTable[allocatedReg] = true;
+                    R_a = allocatedReg;
+                    if(paramIndex < 3)
+                    {
+                        R_b = REG_PARAM + paramIndex;
+                        R_c = 0;
+                        assembleAndPutCode(OP_ADD,R_a,R_b,R_c);
+                    }
+                    else
+                    {
+                        R_b = REG_FP;
+                        int cVal = loc;
+                        assembleAndPutCode(OP_LDW,R_a,R_b,cVal);
+                    }
+                }
+            }
+        }
+
+
+        //For global variable register allocation that will be used
+        for(auto symIter : globalSymTable.varSymbolList)
+        {
+            shared_ptr<Symbol> sym = symIter.second;
+            if(sym->getSymType() == sym_var)
+            {
+                int loc = sym->getBaseAddr();
+                int allocatedReg = sym->getRegNo(functionName);
+                if(allocatedReg != -1)
+                {
+                    //regTable[allocatedReg] = true;
+                    R_a = allocatedReg;
+                    R_b = REG_GP;
+                    int cVal = loc;
+                    assembleAndPutCode(OP_LDW,R_a,R_b,cVal);
+                }
+            }
+        }
+
+
+        //Real function Body
+        genCodeForBlock(functionName,firstBlock);
+
+        //Function Epilog
+        //if there is global variable defined, store it so that main also can get the changed value
+        for(auto globalVarIter : symTable.definedGlobalVal)
+        {
+            string globalVarName = globalVarIter.first;
+            DefinedInfo defInfo = globalVarIter.second;
+            Kind defKind = defInfo.getKind();
+            shared_ptr<Symbol> globalVarSym = globalSymTable.varSymbolList.at(globalVarName);
+            int loc = globalVarSym->getBaseAddr();
+            if(defKind == constKind)
+            {
+                int cVal = defInfo.getConst();
+                assembleAndPutCode(OP_ADDI,REG_PROXY,0,cVal);
+                R_a = REG_PROXY;
+            }
+            else if(defKind == varKind)
+            {
+                shared_ptr<Symbol> definedVarSym = defInfo.getVarSym();
+                R_a = definedVarSym->getRegNo(functionName);
+            }
+            else if(defKind == instKind)
+            {
+                shared_ptr<IRFormat> definedInst = defInfo.getInst();
+                R_a = definedInst->getRegNo();
+            }
+            R_b = REG_GP;
+            int cVal = loc;
+            assembleAndPutCode(OP_STW,R_a,R_b,cVal);
+        }
+
+        //Return back regsters' for caller
+        while(!regUsedList.empty())
+        {
+            R_a = regUsedList.back();
+            R_b = REG_SP;
+            R_c = 4;
+            assembleAndPutCode(OP_POP,R_a,R_b,R_c);
+            regUsedList.pop_back();
+        }
+        if(numOfVRegs != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*numOfVRegs);//Pop the virtual registers
+        if(localVarTop != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*localVarTop);//Pop the local variable
+
+
+        R_a = REG_RET;
+        R_b = REG_SP;
+        valC = 4;
+        //get the return address back
+        assembleAndPutCode(OP_POP, R_a, R_b, valC);
+        //get the previous FP back
+        R_a = REG_FP;
+        assembleAndPutCode(OP_POP, R_a, R_b, valC);
+        //Remove Parameter
+        R_a = REG_SP;
+        R_b = REG_SP;
+        valC = symTable.getNumOfParam()*4;
+        assembleAndPutCode(OP_ADDI, R_a, R_b, valC);
+        //Return!
+        assembleAndPutCode(OP_BEQ,REG_0,REG_RET);
+
+
+    }
+
     //Fixup
     for(auto fixInfo : locationTobeFixed)
     {
@@ -32,22 +224,21 @@ void CodeGeneration::doCodeGen()
         cout << bitset<32>(buf.at(i)) << endl;
     }*/
 }
-void CodeGeneration::genCodeForBlock(shared_ptr<BasicBlock> currentBlock)
+void CodeGeneration::genCodeForBlock(string functionName, shared_ptr<BasicBlock> currentBlock)
 {
     startLocOfBlock.insert({currentBlock->getBlockNum(),loc});
-
     //Generate Each code
     for(auto code : currentBlock->irCodes)
     {
-        insertCode(code);
+        insertCode(functionName,code);
     }
 
     //NextBlock
     for(auto childBlock : currentBlock->DTForwardEdges)
-        genCodeForBlock(childBlock);
+        genCodeForBlock(functionName,childBlock);
 }
 
-void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
+void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
 {
     if(code->isElimiated())
         return;
@@ -81,16 +272,26 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
         isFirstOperandConst = true;
     if(numOfIROperand == 1)
     {
-        //Fixme:difficult part
+
         if(irOp == IR_load)
         {
-
+            int R_a = code->getRegNo();
+            int R_b = firstOperand.getReg(functionName);
+            int R_c = 0;//Already computed in R_b
+            assembleAndPutCode(OP_LDW,R_a,R_b,R_c);
         }
         else if(irOp == IR_bra) //should distinguish whether it is Normal jump or func call
         {
             //Function call
             if(firstOperand.isDiffFuncLoc())
             {
+                int firstOperandVal = firstOperand.getBlockNo();
+                int opCode = OP_BSR;
+                locationTobeFixed.insert({loc,firstOperandVal});
+                assembleAndPutCode(opCode,firstOperandVal);
+
+            }
+            else if(firstOperand.getKind() == instKind){//Return branch(not be used)
 
             }
             else//General unconditional branch
@@ -111,7 +312,7 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
                 outputReg = REG_PROXY;
             }
             else
-                outputReg = firstOperand.getReg();
+                outputReg = firstOperand.getReg(functionName);
             assembleAndPutCode(OP_WRD,outputReg);
         }
         return;
@@ -136,7 +337,7 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
                 firstOperandReg = REG_PROXY;
             }
             else
-                firstOperandReg = firstOperand.getReg();
+                firstOperandReg = firstOperand.getReg(functionName);
 
             if(isSecondOperandConst) {
                 opFormat = OP_F1;
@@ -144,40 +345,82 @@ void CodeGeneration::insertCode(shared_ptr<IRFormat> code)
             }
             else {
                 opFormat = OP_F2;
-                secondOperandVal = secondOperand.getReg();
+                secondOperandVal = secondOperand.getReg(functionName);
             }
             int opCode = irToOp(irOp,opFormat);
             assembleAndPutCode(opCode,destReg,firstOperandReg,secondOperandVal);
         }
         else if(irOp == IR_store)
         {
-
+            int R_a;
+            int R_b = secondOperand.getReg(functionName);
+            int R_c = 0;//Already computed in R_b
+            if(isFirstOperandConst) {
+                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
+                R_a = REG_PROXY;
+            }
+            else
+                R_a = firstOperand.getReg(functionName);
+            assembleAndPutCode(OP_STW,R_a,R_b,R_c);
         }
         else if(irOp == IR_move)
         {
 
             int firstOperandReg;
-            int secondOperandReg = secondOperand.getReg();
+            int secondOperandReg = secondOperand.getReg(functionName);
             int destReg = secondOperandReg;
             if(isFirstOperandConst) {
                 assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
                 firstOperandReg = REG_PROXY;
             }
             else
-                firstOperandReg = firstOperand.getReg();
+                firstOperandReg = firstOperand.getReg(functionName);
 
-            OPFORMAT opFormat = OP_F2;
             int opCode = OP_ADD;
             assembleAndPutCode(opCode,destReg,0,firstOperandReg);
         }
         else if(irOp == IR_bne || irOp == IR_beq || irOp == IR_ble || irOp == IR_blt || irOp == IR_bge|| irOp == IR_bgt)
         {
-            int firstOperandReg = firstOperand.getReg();
+            int firstOperandReg = firstOperand.getReg(functionName);
             int secondOperandVal = secondOperand.getBlockNo();
             OPFORMAT opFormat = OP_F1;
             int opCode = irToOp(irOp,opFormat);
             locationTobeFixed.insert({loc,secondOperandVal});
             assembleAndPutCode(opCode,firstOperandReg,secondOperandVal);
+        }
+        else if(irOp == IR_miu)
+        {
+
+            int secondOperandReg = secondOperand.getReg(functionName);
+            if(secondOperandReg == REG_SP)//should push to the stack
+            {
+                int R_a;
+                int R_b = secondOperandReg;
+                if(isFirstOperandConst) {
+                    int val_c = firstOperand.getConst();
+                    assembleAndPutCode(OP_ADDI, REG_PROXY, 0, val_c);
+                    R_a = REG_PROXY;
+                }
+                else
+                    R_a = firstOperand.getReg(functionName);
+                assembleAndPutCode(OP_PSH, R_a, R_b, -4);
+            }
+            else//go to parameter register
+            {
+                int R_a = secondOperandReg;
+                int R_b = 0;
+                int R_c;
+                if(isFirstOperandConst) {
+                    int val_c = firstOperand.getConst();
+                    assembleAndPutCode(OP_ADDI, REG_PROXY, R_b, val_c);
+                    R_c = REG_PROXY;
+                }
+                else
+                    R_c = firstOperand.getReg(functionName);
+                assembleAndPutCode(OP_ADD, R_a, R_b, R_c);
+                //Even though parameters are inserted in reg, reserve the space
+                assembleAndPutCode(OP_ADDI, REG_SP,0,-4);
+            }
         }
         return;
     }

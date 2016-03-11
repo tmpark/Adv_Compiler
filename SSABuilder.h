@@ -18,38 +18,7 @@ typedef struct{
 */
 
 
-class DefinedInfo
-{
-public:
-    DefinedInfo(){};
-    DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;
-        locked = false;};
-    void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNum = arg1; inst = arg2;};
-    int getInstNum(){return instNum;};
-    shared_ptr<IRFormat> getInst(){return inst;};
-    void setVar(string arg0, shared_ptr<Symbol> arg1, int arg2){ kind = varKind;var = arg0;definedInst = arg2;varSym = arg1;};
-    string getVar(){return var;};
-    int getDefinedInstOfVar(){return definedInst;};
-    void setConst(int arg){ kind = constKind; constVal = arg;};
-    int getConst(){return constVal;};
-    Kind getKind(){return kind;};
-    int getBlkNum(){return blkNum;};
-    void setlock(bool arg){ locked = arg;};
-    bool isLocked(){return locked;};
-    shared_ptr<Symbol> getVarSym(){return varSym;};
 
-private:
-    int blkNum;
-    string symbol;
-    Kind kind;
-    int instNum;
-    shared_ptr<IRFormat> inst;
-    string var;
-    shared_ptr<Symbol> varSym;
-    int definedInst;
-    int constVal;
-    bool locked;
-};
 
 
 class SSABuilder {
@@ -57,7 +26,8 @@ public:
     SSABuilder(string functionName, int startBlock, int startInst);
     SSABuilder(){};
     void insertDefinedInstr();
-    DefinedInfo getDefinedInfo();
+    DefinedInfo getDefinedInfo();//Only after preparing(Never return Null)
+    DefinedInfo getDefinedInfo(string var);//just get it(Can return bull shit)
     void prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedInfo defInfo);
     void revertToOuter(int blockNum);
     //Return true there is new phi

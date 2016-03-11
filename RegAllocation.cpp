@@ -49,16 +49,10 @@ void RegAllocation::Coloring()
             lowestCost = costOfCode;
             lowestCostNode = node;
         }
-        //size_t numOfNeighbors = node->neighbors.size();
-        //if(numOfNeighbors < NUM_OF_DATA_REGS) {
-        //    targetNode = node;
-        //    NodeFound = true;
-        //    break;
-        //}
+
     }
-    //No inst fewer than num of regs -> node with lowest cost
-    //if(!NodeFound)
-        targetNode = lowestCostNode;
+
+    targetNode = lowestCostNode;
 
     int targetNodeNum = targetNode->getNodeNum();
 
@@ -88,7 +82,15 @@ void RegAllocation::Coloring()
     {
         if(!occupied)
         {
-            targetNode->setReg(index);
+            Parser *parser = Parser::instance();
+            if(index >= NUM_OF_DATA_REGS)
+            {
+                //index - NUM_OF_DATA_REGS + 1
+                parser->setNumOfVirtualRegs(functionName,index-NUM_OF_DATA_REGS + 1);
+            }
+            targetNode->setReg(functionName,index);
+            parser->insertRegUsed(functionName,index);
+
             return;
         }
         index++;
@@ -122,7 +124,7 @@ void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
                 }
                 else if (operandKind == varKind) {
                     shared_ptr<Symbol> operandSymbol = operand.getVarSym();
-                    int operandSymReg = operandSymbol->getRegNo();
+                    int operandSymReg = operandSymbol->getRegNo(functionName);
                     if (operandSymReg != regNoOfPhi) {
                         shared_ptr<IRFormat> ir_line = getMoveCode(currentBlock->getBlockNum(), operandSymReg,
                                                                    regNoOfPhi, 0);
@@ -159,7 +161,7 @@ void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
                 }
                 else if (operandKind == varKind) {
                     shared_ptr<Symbol> operandSymbol = operand.getVarSym();
-                    int operandSymReg = operandSymbol->getRegNo();
+                    int operandSymReg = operandSymbol->getRegNo(functionName);
                     if (operandSymReg != regNoOfPhi) {
                         array<int,3> moveTuple = {operandSymReg,regNoOfPhi,0};
                         bodyBlockMoves.push_back(moveTuple);
@@ -218,7 +220,7 @@ void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
                     else if(operandKind == varKind)
                     {
                         shared_ptr<Symbol> operandSymbol = operand.getVarSym();
-                        int operandSymReg = operandSymbol->getRegNo();
+                        int operandSymReg = operandSymbol->getRegNo(functionName);
                         if(operandSymReg != regNoOfPhi)
                         {
                             //if there is no else block for dealing with second operand(children is just two(if.then and if.end)
@@ -402,6 +404,13 @@ void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unord
         }
         else if(blkKind == blk_if_then)
         {
+            //If there is no else: just take phi
+            if(currentBlock->DTForwardEdges.size() ==2)
+            {
+                getLiveSetForPhi(tempLiveSet,phiCodes,2);
+                tempLiveSetList.push_back(tempLiveSet);
+            }
+
             getLiveSetForPhi(tempLiveSet,phiCodes,1);
             buildInterfGraph(targetBlock,tempLiveSet);//live2
             tempLiveSetList.push_back(tempLiveSet);
@@ -598,7 +607,7 @@ void RegAllocation::createInterferenceGraph(const string &graphFolder,const stri
         if(nodeKind == instKind)
         {
             shared_ptr<IRFormat> inst = node->getInst();
-            string codeString = "R" + to_string(node->getAssignedReg()) + "::" +parser->getCodeString(inst);
+            string codeString = "R" + to_string(node->getAssignedReg()) + "::" +parser->getCodeString(functionName, inst);
             graphDrawer->writeCode(codeString);
         }
         else if(nodeKind == varKind)

@@ -13,21 +13,23 @@
 #define PRE_FP_IN_STACK 0
 #define PARAM_IN_STACK 1
 #define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
+#define REG_0 0
 #define REG_PROXY 25
 #define NUM_OF_PROXY_REG 2
 #define REG_RET_VAL 27
 #define REG_FP 28
 #define REG_SP 29
+#define REG_GP 30
 #define REG_RET 31
 #define REG_VIRTUAL 32
 #define REG_CALLER_SAVED 1
-#define REG_DATA 1
+#define REG_DATA 4
 #define REG_PARAM 1
+#define NUM_OF_PARAM_REGS 3
 #define NUM_OF_CALLER_SAVED 4
-#define NUM_OF_PARAM_REG 4
 #define REG_CALLEE_SAVED 5
 #define NUM_OF_CALlEE_SAVED 4
-#define NUM_OF_DATA_REGS 8
+#define NUM_OF_DATA_REGS 5
 #define MAX_NUMS_OF_REGS 128
 #define GLOBAL_SCOPE_NAME "main"
 
@@ -128,9 +130,12 @@ typedef enum{
     sym_err, sym_var, sym_param, sym_array, sym_func, sym_proc
 }SymType;
 
+
+
 class IRFormat;
 class Symbol;
 class Result;
+class DefinedInfo;
 
 
 
@@ -190,16 +195,16 @@ class Symbol
 
 public:
     Symbol(){ symType = sym_err; cost = 0;
-        numOfParam = 0; regNo=-1;};
+        numOfParam = 0;paramIndex = -1;};
     Symbol(SymType symType, int loc)
     { this->symType = symType;this->symBaseAddr = loc;
-        numOfParam = 0;cost = 0;regNo=-1;};
+        numOfParam = 0;cost = 0;paramIndex = -1;};
     Symbol(SymType symType, int loc, vector<int> arrayCapacity)
     { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
-        numOfParam = 0;cost = 0;regNo=-1;};
+        numOfParam = 0;cost = 0;paramIndex = -1;};
     Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
     { this->symType = symType; this->symBaseAddr = loc;
-        this->numOfParam = numOfParam;cost = 0;regNo=-1;};
+        this->numOfParam = numOfParam;cost = 0;paramIndex = -1;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
     void setBaseAddr(int arg){ symBaseAddr = arg;};
@@ -208,8 +213,15 @@ public:
     int getNumOfParam(){ return numOfParam;};
     void setCost(int arg){cost = arg;};
     int getCost(){return cost;};
-    void setReg(int arg){regNo = arg;};
-    int getRegNo(){return regNo;};
+    void setReg(string arg1, int arg2){regList.insert({arg1,arg2});};
+    int getRegNo(string arg){
+        auto regListIter = regList.find(arg);
+        if(regListIter == regList.end())
+            return -1;
+        else
+            return regListIter->second;};
+    void setParamIndex(int arg){paramIndex = arg;};
+    int getParamIndex(){return paramIndex;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
 
@@ -218,20 +230,62 @@ public:
 private:
     SymType symType; //var, array, function, procedure
     int symBaseAddr; //Location of symbol
+    int paramIndex;
     int numOfParam; //Only for function
     int cost; //Only for var
-    int regNo;
+    unordered_map<string,int> regList;
 };
 
+
+
+
+class DefinedInfo
+{
+public:
+    DefinedInfo(){blkNum = -1;kind = errKind;instNum = -1;definedInst = -1;constVal = -1;locked = false;};
+    DefinedInfo(int blkNum, string symbol){ this->blkNum = blkNum;this->symbol = symbol;
+        locked = false;};
+    void setInst(int arg1, shared_ptr<IRFormat> arg2){kind = instKind; instNum = arg1; inst = arg2;};
+    int getInstNum(){return instNum;};
+    shared_ptr<IRFormat> getInst(){return inst;};
+    void setVar(string arg0, shared_ptr<Symbol> arg1, int arg2){ kind = varKind;var = arg0;definedInst = arg2;varSym = arg1;};
+    string getVar(){return var;};
+    int getDefinedInstOfVar(){return definedInst;};
+    void setConst(int arg){ kind = constKind; constVal = arg;};
+    int getConst(){return constVal;};
+    Kind getKind(){return kind;};
+    int getBlkNum(){return blkNum;};
+    void setlock(bool arg){ locked = arg;};
+    bool isLocked(){return locked;};
+    shared_ptr<Symbol> getVarSym(){return varSym;};
+//    int getAllocatedReg(){
+//        if(kind == instKind)
+//            return inst->getRegNo();
+//        else if(kind == varKind)
+//            return varSym->getRegNo();
+//    };
+
+private:
+    int blkNum;
+    string symbol;
+    Kind kind;
+    int instNum;
+    shared_ptr<IRFormat> inst;
+    string var;
+    shared_ptr<Symbol> varSym;
+    int definedInst;
+    int constVal;
+    bool locked;
+};
 
 class SymTable
 {
 public:
     SymTable(){parentSymTableName = "";
-        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;};
+        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
     SymTable(string parentSymTableName)
     { this->parentSymTableName = parentSymTableName;
-        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;};
+        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
     void setParent(string arg){this->parentSymTableName = arg;};
     string getParent(){return parentSymTableName;};
     void insertVarSym(string symName, shared_ptr<Symbol> sym){
@@ -248,12 +302,26 @@ public:
     unordered_map<string,shared_ptr<Symbol>> funcSymbolList;
     int getLocalVarTop(){return localVarTop;};
     void setLocalVarTop(int arg){ localVarTop = arg;};
+    int getNumOfVirtualRegs(){return numOfVirtualRegs;};
+    void setNumOfVirtualRegs(int arg){numOfVirtualRegs = arg;};
+    vector<int> regUsedList;
+    unordered_map<string,DefinedInfo> definedGlobalVal;
+
 private:
     string parentSymTableName;
     int numOfSymVar;
     int numOfSymParam;
     int localVarTop;
+    int numOfVirtualRegs;
 };
+
+
+
+typedef struct{
+    shared_ptr<Symbol> symbol;
+    DefinedInfo defInfo;
+}GlobalDefInfo;
+
 
 class Result{
 public:
@@ -278,9 +346,9 @@ public:
     void setFixLoc(int arg){fixLoc = arg;};//Only for relation
     int getFixLoc(){return fixLoc;};//Only for relation
     void setReg(int arg){kind = regKind; regNo = arg;};
-    int getReg(){
+    int getReg(string arg){//argument is only for RegisterAllocation
         if(kind == varKind)
-            return varSym->getRegNo();
+            return varSym->getRegNo(arg);
         else if(kind == instKind)
             return inst->getRegNo();
         else
@@ -294,6 +362,7 @@ public:
     void setDiffFuncLoc(string name, shared_ptr<Symbol> sym){ diffFuncLoc = true; funcName = name; funcSym = sym;};
     bool isDiffFuncLoc(){return diffFuncLoc;};
     string getDiffFuncName(){return funcName;};
+    unordered_map<string,GlobalDefInfo> globalDefInfo;//Only for branch location to other function
 
 private:
     Kind kind;
