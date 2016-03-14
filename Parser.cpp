@@ -264,12 +264,18 @@ void Parser::funcDecl(){
                     for(auto symIter : globalSymTable.varSymbolList)
                     {
                         string globalSymName = symIter.first;
+
+                        SymTable currentSymTable = symTableList.at(symName);
+                        auto currentVarSymIter = currentSymTable.varSymbolList.find(globalSymName);
+                        if(currentSymTable.varSymbolList.end() != currentVarSymIter)//If local variable has the same name with a global variable -> skip it
+                            continue;
+
                         shared_ptr<Symbol> globalSym = symIter.second;
                         if(globalSym->getSymType() == sym_var)
                         {
                             DefinedInfo globalDefInfo = ssaBuilder.getDefinedInfo(globalSymName);
                             Kind defKind = globalDefInfo.getKind();
-                            if(defKind != errKind) //There was definition for global variable
+                            if(defKind != errKind && defKind != reloadKind) //There was definition for global variable
                             {
                                 SymTable *symTable = &symTableList.at(symName);
                                 symTable->definedGlobalVal.insert({symIter.first,globalDefInfo});
@@ -451,6 +457,8 @@ void Parser::returnStatement() {
             x = expression();
             Result ret;ret.setReg(REG_RET_VAL);
             emitIntermediate(IR_miu,{x,ret});
+            Result returnAddr;returnAddr.setReg(REG_RET);returnAddr.setReturnAddr();
+            emitIntermediate(IR_bra,{returnAddr});
             //Result offset = getAddressInStack(RETURN_IN_STACK);
             //Result x = emitIntermediate(IR_load,{offset});
             //emitIntermediate(IR_bra,{x});
@@ -800,11 +808,17 @@ Result Parser::funcCall() {
                 {
                     string symName = symbol.first;
                     shared_ptr<Symbol> sym = symbol.second;
+
+                    SymTable currentSymTable = symTableList.at(functionName);
+                    auto currentVarSymIter = currentSymTable.varSymbolList.find(symName);
+                    if(currentSymTable.varSymbolList.end() != currentVarSymIter)//If local variable has the same name with a global variable -> skip it
+                        continue;
+
                     DefinedInfo defInfo = ssaBuilder.getDefinedInfo(symName);
                     Result storedValue;
                     Kind defKind = defInfo.getKind();
                     //store globals having been defined
-                    if(defKind != errKind)
+                    if(defKind != errKind && defKind != reloadKind)//without No definition or definition nullired case
                     {
                         if(defKind == constKind)
                         {
@@ -817,17 +831,20 @@ Result Parser::funcCall() {
                         }
                         else if(defKind == instKind)
                             storedValue.setInst(defInfo.getInst());
-                        int loc = sym->getBaseAddr();
+
+                        int loc = sym->getBaseAddr()*4;
                         Result operandGP;operandGP.setReg(REG_GP);
                         Result operandLoc;operandLoc.setConst(loc);
-                        Result addrToStore = emitIntermediate(IR_add,{operandLoc,operandGP});
+                        Result addrToStore = emitIntermediate(IR_add,{operandGP,operandLoc});
                         emitIntermediate(IR_store,{storedValue,addrToStore});
                     }
                 }
 
                 Result jumpLocation;jumpLocation.setConst(locationOfFunc);
-                /*
                 jumpLocation.setDiffFuncLoc(functionName, functionSym);
+                SymType symType = functionSym->getSymType();
+                jumpLocation.setFunctionType(symType);
+                /*
                 //For all global variable
                 SymTable mainSymTable = symTableList.at(GLOBAL_SCOPE_NAME);
                 for(auto symbol : mainSymTable.varSymbolList)
@@ -841,13 +858,19 @@ Result Parser::funcCall() {
                 }*/
                 result = emitIntermediate(IR_bra,{jumpLocation});
                 Result returnValReg; returnValReg.setReg(REG_RET_VAL);
-                emitIntermediate(IR_miu,{returnValReg,result}); //Return value get
+                if(symType == sym_func)
+                    emitIntermediate(IR_miu,{returnValReg,result}); //Return value get
 
                 //After branch update all global variable and make definition of it is load instruction
                 for(auto symbol : mainSymTable.varSymbolList)
                 {
                     string symName = symbol.first;
                     shared_ptr<Symbol> sym = symbol.second;
+
+                    SymTable currentSymTable = symTableList.at(functionName);
+                    auto currentVarSymIter = currentSymTable.varSymbolList.find(symName);
+                    if(currentSymTable.varSymbolList.end() != currentVarSymIter)//If local variable has the same name with a global variable -> skip it
+                        continue;
 
                     //After function call, all array load should be killed
                     if(sym->getSymType() == sym_array)
@@ -864,13 +887,13 @@ Result Parser::funcCall() {
                     }
                     else//All global variable should be reinitialized
                     {
-                        DefinedInfo defInfo;
-                        int loc = sym->getBaseAddr();
-                        Result operandGP;operandGP.setReg(REG_GP);
-                        Result operandLoc;operandLoc.setConst(loc);
-                        Result addrToLoad = emitIntermediate(IR_add,{operandLoc,operandGP});
-                        Result loadedVal = emitIntermediate(IR_load,{addrToLoad});
-                        defInfo.setInst(loadedVal.getInst()->getLineNo(),loadedVal.getInst());
+                        DefinedInfo defInfo;defInfo.setReload();
+                        //int loc = sym->getBaseAddr()*4;
+                        //Result operandGP;operandGP.setReg(REG_GP);
+                        //Result operandLoc;operandLoc.setConst(loc);
+                        //Result addrToLoad = emitIntermediate(IR_add,{operandGP,operandLoc});
+                        //Result loadedVal = emitIntermediate(IR_load,{addrToLoad});
+                        //defInfo.setInst(loadedVal.getInst()->getLineNo(),loadedVal.getInst());
                         ssaBuilder.prepareForProcess(symName,sym,defInfo);
                         ssaBuilder.insertDefinedInstr();
                     }
@@ -1102,10 +1125,15 @@ Result Parser::designator() {
         {
             //x is array. So we have to provide address of x and index
             shared_ptr<Symbol> xSymbol = symTableLookup(scopeStack.top(), x.getVariableName(), sym_array);
-            x.setConst(xSymbol->getBaseAddr());
+            x.setConst(xSymbol->getBaseAddr()*4);
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
-            if(scopeStack.top() == GLOBAL_SCOPE_NAME)
+
+
+            SymTable symTable = symTableList.at(scopeStack.top());
+            auto symIter = symTable.varSymbolList.find(variableName);
+            //if array not exist in local var: global array
+            if(symIter == symTable.varSymbolList.end())
                 y.setReg(REG_GP);
             else
                 y.setReg(REG_FP);//Frame pointer
@@ -1182,18 +1210,8 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
         return propagatedResult;
     }
 
-    //Normal IR generation
-
-    shared_ptr<IRFormat> ir_line(new IRFormat);
-    ir_line->setBlkNo(currentBlock->getBlockNum());
-    ir_line->setLineNo(IRpc);
-    ir_line->setIROP(irOp);
-
-    Result result;
-    result.setInst(ir_line);
     index = 0;
-    instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
-
+    vector<Result> operands;
 
     //Setting operands
     for(auto x_i : x) {
@@ -1219,6 +1237,19 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
                 x_i.setVariable(varName,varSym);
                 x_i.setDefInst(definedInfo.getDefinedInstOfVar());//previously defined instr
             }
+            else if(definedInfo.getKind() == reloadKind) //for global variable reload
+            {
+                shared_ptr<Symbol> sym = symTableLookup(GLOBAL_SCOPE_NAME,var,sym_var);
+                int loc = sym->getBaseAddr()*4;
+                Result operandGP;operandGP.setReg(REG_GP);
+                Result operandLoc;operandLoc.setConst(loc);
+                Result addrToLoad = emitIntermediate(IR_add,{operandGP,operandLoc});addrToLoad.setArrayInst(var);
+                Result loadedVal = emitIntermediate(IR_load,{addrToLoad});
+                DefinedInfo defInfo;defInfo.setInst(loadedVal.getInst()->getLineNo(),loadedVal.getInst());
+                ssaBuilder.prepareForProcess(var,sym,defInfo);
+                ssaBuilder.insertDefinedInstr();
+                x_i.setInst(defInfo.getInst());
+            }
         }
 
         //Cost setting
@@ -1238,10 +1269,20 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
             sym->setCost(cost);
         }
 
-        ir_line->operands.push_back(x_i);
+        operands.push_back(x_i);
         index++;
     }
+    //Normal IR generation
 
+    shared_ptr<IRFormat> ir_line(new IRFormat);
+    ir_line->setBlkNo(currentBlock->getBlockNum());
+    ir_line->setLineNo(IRpc);
+    ir_line->setIROP(irOp);
+    ir_line->operands = operands;
+
+    Result result;
+    result.setInst(ir_line);
+    instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
     //Check whether elimination is possible
     if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg ||
@@ -1394,6 +1435,12 @@ void Parser::createControlFlowGraph(const string &graphFolder,const string &sour
         for (auto blockPair : basicBlockList) {
             shared_ptr<BasicBlock> block = blockPair;
             graphDrawer->writeNodeStart(block->getBlockNum(), block->getBlockName());
+            for (auto code : block->edgeCodes) {
+                if(code->isElimiated())
+                    continue;
+                string codeString = getCodeString(function.first,code);
+                graphDrawer->writeCode(codeString);
+            }
             for (auto code : block->phiCodes) {
                 if(code->isElimiated())
                     continue;
@@ -1672,14 +1719,14 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
         return;
     }
     SymTable *currentSymTable = &symTableIter->second;
-    int localVarTop = currentSymTable->getLocalVarTop() - varSize;//move go downwards
+    int localVarSize = currentSymTable->getLocalVarSize() + varSize;
     //Make symbol
-    shared_ptr<Symbol> newSymbol(new Symbol(symType,localVarTop,arrayCapacity));
+    shared_ptr<Symbol> newSymbol(new Symbol(symType, LOCAL_IN_STACK - localVarSize, arrayCapacity));
 
     //Update symtable
     currentSymTable->insertVarSym(symbol,newSymbol);
 
-    currentSymTable->setLocalVarTop(localVarTop);
+    currentSymTable->setLocalVarSize(localVarSize);
 
 }
 

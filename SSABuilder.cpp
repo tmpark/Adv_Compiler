@@ -95,14 +95,16 @@ void SSABuilder:: insertDefinedInstr()
             defBeforeInserted.setVariable(symDefined.getVar(),symDefined.getVarSym());
             defBeforeInserted.setDefInst(symDefined.getDefinedInstOfVar());//previously defined instr
         }
+        else if(symDefined.getKind() == reloadKind)
+        {
+            //No case for this
+        }
     }
     else
     {
         defBeforeInserted.setVariable(varName,varSym);//remember previously defined loc(for later use of ssa phi)
         defBeforeInserted.setDefInst(startInst);//Previously defined instr
     }
-
-
 
     definedInfoList.push(currentDefInfo);
     definedInfoTable.at(varName) = definedInfoList; //update

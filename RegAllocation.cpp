@@ -10,6 +10,7 @@ RegAllocation :: RegAllocation(string functionName,vector<shared_ptr<BasicBlock>
     instNodeStart = numOfVars;
     this->blocks = blocks;
     numOfVarNodes = 0;
+    numOfVReg = 0;
     this->functionName = functionName;
     for(int i = 0 ; i < MAX_NUMS_OF_REGS ; i++)
         regMapTemplate.push_back(false);
@@ -26,7 +27,27 @@ void RegAllocation::doRegAllocation()
 {
     unordered_map<int,shared_ptr<Node>> liveSet;
     buildInterfGraph(blocks.at(0),liveSet);
+
+    unordered_map<int,shared_ptr<Node>> liveSetIter = liveSet;
+
+    for(auto liveEntry : liveSetIter)
+    {
+        int targetEntryNum = liveEntry.first;
+        //cout << targetEntryNum << endl;
+        shared_ptr<Node> targetEntry = liveEntry.second;
+
+        liveSet.erase(targetEntryNum);
+
+        for (auto otherEntry : liveSet)
+            makeEdge(targetEntry, otherEntry.second);
+    }
+
+
+
     Coloring();
+    Parser *parser = Parser::instance();
+    parser->setNumOfVirtualRegs(functionName,numOfVReg);
+
     RemovePhi(blocks.at(0));
 }
 
@@ -83,10 +104,10 @@ void RegAllocation::Coloring()
         if(!occupied)
         {
             Parser *parser = Parser::instance();
-            if(index >= NUM_OF_DATA_REGS)
+            if(index >= NUM_OF_DATA_REGS && numOfVReg < index-NUM_OF_DATA_REGS + 1)
             {
+                numOfVReg = index-NUM_OF_DATA_REGS + 1;
                 //index - NUM_OF_DATA_REGS + 1
-                parser->setNumOfVirtualRegs(functionName,index-NUM_OF_DATA_REGS + 1);
             }
             targetNode->setReg(functionName,index);
             parser->insertRegUsed(functionName,index);
@@ -268,6 +289,16 @@ void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
                 insertMove(currentBlock->DTForwardEdges.at(1),elseBlockMoves);
             if(!splitBlockMoves.empty())
             {
+                shared_ptr<BasicBlock> splitBlock = currentBlock->DTForwardEdges.at(1);
+                int splitBlockNum = splitBlock->getBlockNum();
+                for(auto splitBlockMove : splitBlockMoves)
+                {
+                    //Insert Move at the end of currentBlock
+                    shared_ptr<IRFormat> ir_line = getMoveCode(splitBlockNum,splitBlockMove.at(0),splitBlockMove.at(1),splitBlockMove.at(2));
+                    splitBlock->edgeCodes.push_back(ir_line);
+                }
+                insertBranch(currentBlock->DTForwardEdges.at(0),splitBlockNum,splitBlock->edgeCodes.size());
+                /*
                 shared_ptr<BasicBlock> splitBlock(new BasicBlock(parser->newBasicBlock(),blk_move));
                 int splitBlockNum = splitBlock->getBlockNum();
                 //Branch Operand;
@@ -296,9 +327,38 @@ void RegAllocation::RemovePhi(shared_ptr<BasicBlock> currentBlock)
                 currentBlock->DTForwardEdges.push_back(splitBlock);
                 splitBlock->DTForwardEdges.push_back(endBlock);
                 parser->updateBlockInfo(functionName,splitBlock);
+                */
             }
         }
         RemovePhi(childBlockIter);
+    }
+
+}
+
+void RegAllocation::insertBranch(shared_ptr<BasicBlock> currentBlock,int blockNum, int numOfEdgeCodes)
+{
+    //Go down to the end of the block;
+    while(!currentBlock->DTForwardEdges.empty())
+        currentBlock = currentBlock->DTForwardEdges.back();
+    if(!currentBlock->irCodes.empty())
+    {
+        shared_ptr<IRFormat> lastCode = currentBlock->irCodes.back();
+        if(lastCode->getIROP() == IR_bra && lastCode->operands.at(0).getKind() == blockKind)
+        {
+            lastCode->operands.at(0).setBlock(blockNum);
+            lastCode->operands.at(0).setJumpLoc(numOfEdgeCodes);
+        }
+        else
+        {
+            Parser *parser = Parser::instance();
+            shared_ptr<IRFormat> ir_line(new IRFormat);
+            ir_line->setBlkNo(currentBlock->getBlockNum());
+            ir_line->setLineNo(parser->newInstruction());
+            ir_line->setIROP(IR_bra);
+            Result jumpBra;jumpBra.setBlock(blockNum);jumpBra.setJumpLoc(numOfEdgeCodes);
+            ir_line->operands.push_back(jumpBra);
+            currentBlock->irCodes.push_back(ir_line);
+        }
     }
 
 }
@@ -379,17 +439,25 @@ void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unord
         {
             buildInterfGraph(targetBlock,tempLiveSet);
             tempLiveSetList.push_back(tempLiveSet);//Live1
-            getLiveSet(tempLiveSet,currentBlock->irCodes);//Live2
-            getLiveSetForPhi(tempLiveSet,currentBlock->phiCodes,2);
+            //getLiveSet(tempLiveSet,currentBlock->irCodes);//Live2
+            //getLiveSetForPhi(tempLiveSet,currentBlock->phiCodes,2,false);
             liveSet = tempLiveSet;
         }
         else if(blkKind == blk_while_body)
         {
-            buildInterfGraph(targetBlock,tempLiveSet);//Live3
-            for(auto eachSet :tempLiveSetList)
-                tempLiveSet.insert(eachSet.begin(),eachSet.end());//Live3 + Live1
-            getLiveSet(tempLiveSet,currentBlock->irCodes);//Live2'
-            getLiveSetForPhi(tempLiveSet,currentBlock->phiCodes,1);
+            //Do it two times
+            for(int i = 0 ; i < 2 ; i++)
+            {
+                getLiveSet(tempLiveSet,currentBlock->irCodes);//Live2
+                getLiveSetForPhi(tempLiveSet,currentBlock->phiCodes,2,false);//Live2 + x1
+                buildInterfGraph(targetBlock,tempLiveSet);//Live3
+                for(auto eachSet :tempLiveSetList)
+                    tempLiveSet.insert(eachSet.begin(),eachSet.end());//Live3 + Live1
+                getLiveSet(tempLiveSet,currentBlock->irCodes);//Live2'
+            }
+
+
+            getLiveSetForPhi(tempLiveSet,currentBlock->phiCodes,1,true); //Live2' - i + x0
             liveSet = tempLiveSet;
         }
         else if(blkKind == blk_if_end){
@@ -398,7 +466,7 @@ void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unord
         }
         else if(blkKind == blk_if_else)
         {
-            getLiveSetForPhi(tempLiveSet,phiCodes,2);
+            getLiveSetForPhi(tempLiveSet,phiCodes,2,true);
             buildInterfGraph(targetBlock,tempLiveSet);//live3
             tempLiveSetList.push_back(tempLiveSet);
         }
@@ -407,11 +475,11 @@ void RegAllocation:: buildInterfGraph(shared_ptr<BasicBlock> currentBlock, unord
             //If there is no else: just take phi
             if(currentBlock->DTForwardEdges.size() ==2)
             {
-                getLiveSetForPhi(tempLiveSet,phiCodes,2);
+                getLiveSetForPhi(tempLiveSet,phiCodes,2,true);
                 tempLiveSetList.push_back(tempLiveSet);
             }
 
-            getLiveSetForPhi(tempLiveSet,phiCodes,1);
+            getLiveSetForPhi(tempLiveSet,phiCodes,1,true);
             buildInterfGraph(targetBlock,tempLiveSet);//live2
             tempLiveSetList.push_back(tempLiveSet);
             if(!tempLiveSetList.empty())
@@ -440,7 +508,7 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
         auto nodeIter = nodeList.find(nodeNum);
         shared_ptr<Node> node;
 
-        if(isDefInstr(code->getIROP())) {
+        if(isDefInstr(code)) {
             if(nodeIter == nodeList.end())
             {
                 //If there were usage of that code, there should be node -> dead Code elimination
@@ -504,7 +572,7 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
     }
 }
 
-void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index)
+void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index, bool phiDefRemove)
 {
     Parser *parser = Parser::instance();
     auto rit = codes.rbegin();
@@ -526,10 +594,18 @@ void RegAllocation::getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSe
         else
             node = nodeIter->second;
 
-        liveSet.erase(nodeNum);
-        if(isDefInstr(code->getIROP())){
-            for(auto liveEntry : liveSet)
-                makeEdge(node,liveEntry.second);
+        if(phiDefRemove)
+           liveSet.erase(nodeNum);
+
+        if(isDefInstr(code)){
+            for(auto liveEntryIter : liveSet) {
+
+                int liveEntryNum = liveEntryIter.first;
+                shared_ptr<Node> liveEntry = liveEntryIter.second;
+                int foundNodeNum = node->getNodeNum();
+                if(foundNodeNum != liveEntryNum)
+                    makeEdge(node, liveEntry);
+            }
         }
         Result operand = code->operands.at((unsigned long)index);
         Kind operandKind = operand.getKind();

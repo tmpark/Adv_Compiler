@@ -5,7 +5,7 @@
 #ifndef ADV_COMPILER_CODEGENERATION_H
 #define ADV_COMPILER_CODEGENERATION_H
 
-#define CODEBUFSIZE 4096
+#define CODEBUFSIZE 10000
 
 #include "RegAllocation.h"
 
@@ -32,14 +32,21 @@ private:
     RC openFile(const std::string &fileName);
     RC destroyFile(const string &fileName);
     RC closeFile();
+    void storeForVirtualReg(int virReg, int proxyIndex);
+    void loadForVirtualReg(int virReg, int proxyIndex);
+
 
     std::array<int32_t, CODEBUFSIZE> buf;
     int loc;
     int numOfGlobalVar;
+    int VIRTUAL_IN_STACK;
     std::fstream fileStream;
 
     unordered_map<int,int> startLocOfBlock;
-    unordered_map<int,int> locationTobeFixed;
+    unordered_map<int,int> jumpLocOfBlock;
+    unordered_map<int,Result> locationTobeFixed;
+    unordered_map<string,int> endLocOfFunc;
+    unordered_map<int,string> returnTobeFixed;
 };
 
 

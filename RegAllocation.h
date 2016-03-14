@@ -64,9 +64,11 @@ private:
     vector<shared_ptr<BasicBlock>> blocks;
     void makeEdge(shared_ptr<Node> node1, shared_ptr<Node> node2);
     void getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet,vector<shared_ptr<IRFormat>> codes);
-    void getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index);
+    void getLiveSetForPhi(unordered_map<int,shared_ptr<Node>> &liveSet, vector<shared_ptr<IRFormat>> codes, int index, bool phiDefRemove);
     shared_ptr<IRFormat> getMoveCode(int blkNo, int firstReg, int secondReg, int firstConst);
     void insertMove(shared_ptr<BasicBlock> currentBlock, vector<array<int,3>> blockMoves);
+    void insertBranch(shared_ptr<BasicBlock> currentBlock,int blockNum, int numOfEdgeCodes);
+
     shared_ptr<IRFormat> getUncondBranchCode(int blkNo, int destBlkNo);
 
     int numOfVarNodes;
@@ -74,6 +76,7 @@ private:
     unordered_map<int,shared_ptr<Node>> nodeList;
     int instNodeStart;
     string functionName;
+    int numOfVReg;
 
 };
 

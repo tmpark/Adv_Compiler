@@ -44,8 +44,10 @@ public:
 
     vector<shared_ptr<IRFormat>> irCodes;
     vector<shared_ptr<IRFormat>> phiCodes;
+    vector<shared_ptr<IRFormat>> edgeCodes;
     vector<shared_ptr<BasicBlock>> CFGForwardEdges;
     vector<shared_ptr<BasicBlock>> DTForwardEdges;
+
 private:
     int blockNum;
     BlockAttribute blkAttr;

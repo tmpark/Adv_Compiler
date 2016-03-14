@@ -12,8 +12,9 @@
 #define RETURN_IN_STACK -1
 #define PRE_FP_IN_STACK 0
 #define PARAM_IN_STACK 1
-#define LOCAL_IN_STACK -1 //Same as return pointer(variable should be saved after moving)
+#define LOCAL_IN_STACK -1
 #define REG_0 0
+#define REG_TEMP 24
 #define REG_PROXY 25
 #define NUM_OF_PROXY_REG 2
 #define REG_RET_VAL 27
@@ -119,7 +120,7 @@ typedef enum{
 
 
 typedef enum{
-    errKind,constKind,varKind,instKind,blockKind, regKind
+    errKind,constKind,varKind,instKind,blockKind,regKind,reloadKind
 }Kind;
 
 typedef enum{
@@ -252,6 +253,7 @@ public:
     string getVar(){return var;};
     int getDefinedInstOfVar(){return definedInst;};
     void setConst(int arg){ kind = constKind; constVal = arg;};
+    void setReload(){kind = reloadKind;};
     int getConst(){return constVal;};
     Kind getKind(){return kind;};
     int getBlkNum(){return blkNum;};
@@ -282,10 +284,10 @@ class SymTable
 {
 public:
     SymTable(){parentSymTableName = "";
-        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
+        localVarSize = 0;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
     SymTable(string parentSymTableName)
     { this->parentSymTableName = parentSymTableName;
-        localVarTop = LOCAL_IN_STACK;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
+        localVarSize = 0;numOfSymVar= 0;numOfSymParam = 0;numOfVirtualRegs=0;};
     void setParent(string arg){this->parentSymTableName = arg;};
     string getParent(){return parentSymTableName;};
     void insertVarSym(string symName, shared_ptr<Symbol> sym){
@@ -300,8 +302,8 @@ public:
 
     unordered_map<string,shared_ptr<Symbol>> varSymbolList;
     unordered_map<string,shared_ptr<Symbol>> funcSymbolList;
-    int getLocalVarTop(){return localVarTop;};
-    void setLocalVarTop(int arg){ localVarTop = arg;};
+    int getLocalVarSize(){return localVarSize;};
+    void setLocalVarSize(int arg){ localVarSize = arg;};
     int getNumOfVirtualRegs(){return numOfVirtualRegs;};
     void setNumOfVirtualRegs(int arg){numOfVirtualRegs = arg;};
     vector<int> regUsedList;
@@ -311,7 +313,7 @@ private:
     string parentSymTableName;
     int numOfSymVar;
     int numOfSymParam;
-    int localVarTop;
+    int localVarSize;
     int numOfVirtualRegs;
 };
 
@@ -326,7 +328,7 @@ typedef struct{
 class Result{
 public:
     Result(){kind = errKind; value = -1; variable = ""; relOp = IR_err; fixLoc = -1;defInst = -1;array = false;
-        diffFuncLoc = false;}
+        diffFuncLoc = false;jumpLoc = 0;returnAddr = false;};
     void setKind(Kind arg){kind = arg;};
     Kind getKind(){return kind;};
     //Const
@@ -362,7 +364,17 @@ public:
     void setDiffFuncLoc(string name, shared_ptr<Symbol> sym){ diffFuncLoc = true; funcName = name; funcSym = sym;};
     bool isDiffFuncLoc(){return diffFuncLoc;};
     string getDiffFuncName(){return funcName;};
+    bool hasReturnVal(){
+        if(functionType == sym_func)return true;
+        else if(functionType == sym_proc)
+            return false;
+    };
+    void setFunctionType(SymType arg){functionType = arg;};
     unordered_map<string,GlobalDefInfo> globalDefInfo;//Only for branch location to other function
+    void setJumpLoc(int arg){jumpLoc = arg;};
+    int getJumpLoc(){return jumpLoc;};
+    void setReturnAddr(){returnAddr = true;};
+    bool isReturnAddr(){return returnAddr;};
 
 private:
     Kind kind;
@@ -378,6 +390,9 @@ private:
     bool array;
     int blockNo;
     bool diffFuncLoc;
+    int jumpLoc;
+    bool returnAddr;
+    SymType functionType;
     string funcName;
     shared_ptr<Symbol> funcSym;
 
@@ -417,7 +432,7 @@ std::vector<std::string> splitString(std::string stringToSplit);
 bool isBranchCond(IROP op);
 bool isSameOperand(Result x, Result y);
 bool isInnerBlock(BlockKind blkKind);
-bool isDefInstr(IROP op);
+bool isDefInstr(shared_ptr<IRFormat> code);
 OpCode irToOp(IROP irOp, OPFORMAT opFormat);
 void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat);
 #endif //ADV_COMPILER_HELPER_H

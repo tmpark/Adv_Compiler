@@ -27,11 +27,15 @@ void CodeGeneration::doCodeGen()
 
     SymTable globalSymTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
     numOfGlobalVar = globalSymTable.getNumOfVar();
-    int globalVarTop = globalSymTable.getLocalVarTop();
+    int globalVarSize = globalSymTable.getLocalVarSize();
+    VIRTUAL_IN_STACK = LOCAL_IN_STACK - globalVarSize;
     int numOfVRegs = parser->getNumOfVirtualRegs(GLOBAL_SCOPE_NAME);
     assembleAndPutCode(OP_ADD,REG_SP,0,REG_GP);//Initialize SP as GP
     assembleAndPutCode(OP_ADD,REG_FP,0,REG_GP);//Initialize FP as GP
-    assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*globalVarTop);//Move Stack pointer to reserve slots for global variable
+
+    if(globalVarSize != 0)
+        assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*(globalVarSize));//Move Stack pointer to reserve slots for global variable and facke return addr
+
     if(numOfVRegs > 0)
         assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*numOfVRegs);//Move Stack pointer to reserve slots for virtual register
 
@@ -62,10 +66,11 @@ void CodeGeneration::doCodeGen()
         assembleAndPutCode(OP_PSH, R_a, R_b, valC);
         //Move SP to the amount of the size of all variable;
         SymTable symTable = parser->getSymTable(functionName);
-        int localVarTop = symTable.getLocalVarTop();
+        int localVarSize = symTable.getLocalVarSize();
+        VIRTUAL_IN_STACK = LOCAL_IN_STACK - localVarSize;
 
-        if(localVarTop != 0)
-            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*localVarTop);//Move Stack pointer to reserve slots for global variable
+        if(localVarSize != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*(localVarSize));//Move Stack pointer to reserve slots for variable
         //Move SP to the amount of virtual register
         numOfVRegs = parser->getNumOfVirtualRegs(functionName);
         if(numOfVRegs != 0)
@@ -83,22 +88,13 @@ void CodeGeneration::doCodeGen()
         }
 
 
-
-        //Parameter passing and local variable register allocation
-        /*bool regTable[REG_DATA + NUM_OF_DATA_REGS];
-        for(int i = 0 ; i < REG_DATA + NUM_OF_DATA_REGS ; i++)
-        {
-            if(i < 4)//Predefined reg
-                regTable[i] = true;
-            regTable[i] = false;
-        }*/
         for(auto symIter : symTable.varSymbolList)
         {
             shared_ptr<Symbol> sym = symIter.second;
             SymType symType = sym->getSymType();
             if(symType == sym_param)
             {
-                int loc = sym->getBaseAddr();
+                int loc = sym->getBaseAddr()*4;
                 int paramIndex = sym->getParamIndex();
                 int allocatedReg = sym->getRegNo(functionName);
                 if(allocatedReg != -1)
@@ -128,7 +124,7 @@ void CodeGeneration::doCodeGen()
             shared_ptr<Symbol> sym = symIter.second;
             if(sym->getSymType() == sym_var)
             {
-                int loc = sym->getBaseAddr();
+                int loc = sym->getBaseAddr()*4;
                 int allocatedReg = sym->getRegNo(functionName);
                 if(allocatedReg != -1)
                 {
@@ -144,6 +140,7 @@ void CodeGeneration::doCodeGen()
 
         //Real function Body
         genCodeForBlock(functionName,firstBlock);
+        endLocOfFunc.insert({functionName,loc});
 
         //Function Epilog
         //if there is global variable defined, store it so that main also can get the changed value
@@ -153,7 +150,7 @@ void CodeGeneration::doCodeGen()
             DefinedInfo defInfo = globalVarIter.second;
             Kind defKind = defInfo.getKind();
             shared_ptr<Symbol> globalVarSym = globalSymTable.varSymbolList.at(globalVarName);
-            int loc = globalVarSym->getBaseAddr();
+            int loc = globalVarSym->getBaseAddr()*4;
             if(defKind == constKind)
             {
                 int cVal = defInfo.getConst();
@@ -175,7 +172,7 @@ void CodeGeneration::doCodeGen()
             assembleAndPutCode(OP_STW,R_a,R_b,cVal);
         }
 
-        //Return back regsters' for caller
+        //Return back registers' for caller
         while(!regUsedList.empty())
         {
             R_a = regUsedList.back();
@@ -186,8 +183,8 @@ void CodeGeneration::doCodeGen()
         }
         if(numOfVRegs != 0)
             assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*numOfVRegs);//Pop the virtual registers
-        if(localVarTop != 0)
-            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*localVarTop);//Pop the local variable
+        if(localVarSize != 0)
+            assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,4*(localVarSize));//Pop the local variable
 
 
         R_a = REG_RET;
@@ -202,22 +199,39 @@ void CodeGeneration::doCodeGen()
         R_a = REG_SP;
         R_b = REG_SP;
         valC = symTable.getNumOfParam()*4;
-        assembleAndPutCode(OP_ADDI, R_a, R_b, valC);
+        if(valC !=0)
+            assembleAndPutCode(OP_ADDI, R_a, R_b, valC);
         //Return!
-        assembleAndPutCode(OP_BEQ,REG_0,REG_RET);
-
-
+        assembleAndPutCode(OP_RET,REG_RET);
     }
 
     //Fixup
     for(auto fixInfo : locationTobeFixed)
     {
         int fixLoc = fixInfo.first;
-        int blockTobeFixed = fixInfo.second;
-        int newLoc = startLocOfBlock.at(blockTobeFixed);
+        Result operandToFix = fixInfo.second;
+        int blockTobeFixed = operandToFix.getBlockNo();
+
+        int newLoc;
+        if(operandToFix.getJumpLoc() > 0)
+            newLoc = jumpLocOfBlock.at(blockTobeFixed);
+        else
+            newLoc = startLocOfBlock.at(blockTobeFixed);
+
         buf[fixLoc] = buf[fixLoc] & 0xFFFF0000;
         buf[fixLoc] = buf[fixLoc] | newLoc-fixLoc & 0x0000FFFF;
     }
+
+    for(auto fixInfo : returnTobeFixed)
+    {
+        int fixLoc = fixInfo.first;
+        string functionTobeFixed = fixInfo.second;
+
+        int newLoc = endLocOfFunc.at(functionTobeFixed);
+        buf[fixLoc] = buf[fixLoc] & 0xFFFF0000;
+        buf[fixLoc] = buf[fixLoc] | newLoc-fixLoc & 0x0000FFFF;
+    }
+
     /*
     for(int i = 0 ; i < loc ; i++)
     {
@@ -228,6 +242,14 @@ void CodeGeneration::genCodeForBlock(string functionName, shared_ptr<BasicBlock>
 {
     startLocOfBlock.insert({currentBlock->getBlockNum(),loc});
     //Generate Each code
+    for(auto code : currentBlock->edgeCodes)
+    {
+        insertCode(functionName,code);
+    }
+
+    if(!currentBlock->edgeCodes.empty())
+        jumpLocOfBlock.insert({currentBlock->getBlockNum(),loc});
+
     for(auto code : currentBlock->irCodes)
     {
         insertCode(functionName,code);
@@ -275,30 +297,37 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
 
         if(irOp == IR_load)
         {
+
             int R_a = code->getRegNo();
             int R_b = firstOperand.getReg(functionName);
-            int R_c = 0;//Already computed in R_b
-            assembleAndPutCode(OP_LDW,R_a,R_b,R_c);
+            int cVal = 0;
+            assembleAndPutCode(OP_LDW,R_a,R_b,cVal);
         }
         else if(irOp == IR_bra) //should distinguish whether it is Normal jump or func call
         {
             //Function call
             if(firstOperand.isDiffFuncLoc())
             {
-                int firstOperandVal = firstOperand.getBlockNo();
+                int firstOperandVal = REG_RET;
                 int opCode = OP_BSR;
-                locationTobeFixed.insert({loc,firstOperandVal});
+                locationTobeFixed.insert({loc,firstOperand});
                 assembleAndPutCode(opCode,firstOperandVal);
 
             }
-            else if(firstOperand.getKind() == instKind){//Return branch(not be used)
+            else if(firstOperand.getKind() == instKind){//not be used
 
+            }
+            else if(firstOperand.getKind() == regKind && firstOperand.isReturnAddr()) //return
+            {
+                int firstOperandVal = firstOperand.getReg(functionName);
+                returnTobeFixed.insert({loc,functionName});
+                assembleAndPutCode(OP_BSR,firstOperandVal);
             }
             else//General unconditional branch
             {
                 int firstOperandVal = firstOperand.getBlockNo();
                 int opCode = OP_BEQ;
-                locationTobeFixed.insert({loc,firstOperandVal});
+                locationTobeFixed.insert({loc,firstOperand});
                 assembleAndPutCode(opCode,0,firstOperandVal);
             }
 
@@ -325,7 +354,7 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
     if(numOfIROperand > 1)
     {
         //kinds of adds
-        if(irOp == IR_add || irOp == IR_sub || irOp == IR_mul || irOp == IR_div || irOp == IR_cmp)
+        if(irOp == IR_add || irOp == IR_sub || irOp == IR_mul || irOp == IR_div || irOp == IR_cmp || irOp == IR_adda)
         {
             int destReg = code->getRegNo();
             int firstOperandReg;
@@ -354,14 +383,14 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
         {
             int R_a;
             int R_b = secondOperand.getReg(functionName);
-            int R_c = 0;//Already computed in R_b
+            int valC = 0;
             if(isFirstOperandConst) {
                 assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
                 R_a = REG_PROXY;
             }
             else
                 R_a = firstOperand.getReg(functionName);
-            assembleAndPutCode(OP_STW,R_a,R_b,R_c);
+            assembleAndPutCode(OP_STW,R_a,R_b,valC);
         }
         else if(irOp == IR_move)
         {
@@ -385,7 +414,7 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
             int secondOperandVal = secondOperand.getBlockNo();
             OPFORMAT opFormat = OP_F1;
             int opCode = irToOp(irOp,opFormat);
-            locationTobeFixed.insert({loc,secondOperandVal});
+            locationTobeFixed.insert({loc,secondOperand});
             assembleAndPutCode(opCode,firstOperandReg,secondOperandVal);
         }
         else if(irOp == IR_miu)
@@ -405,7 +434,7 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
                     R_a = firstOperand.getReg(functionName);
                 assembleAndPutCode(OP_PSH, R_a, R_b, -4);
             }
-            else//go to parameter register
+            else//go to parameter register or return val reg
             {
                 int R_a = secondOperandReg;
                 int R_b = 0;
@@ -418,8 +447,10 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
                 else
                     R_c = firstOperand.getReg(functionName);
                 assembleAndPutCode(OP_ADD, R_a, R_b, R_c);
+
                 //Even though parameters are inserted in reg, reserve the space
-                assembleAndPutCode(OP_ADDI, REG_SP,0,-4);
+                if(secondOperandReg < REG_PARAM + NUM_OF_PARAM_REGS && secondOperandReg >= REG_PARAM)
+                    assembleAndPutCode(OP_ADDI, REG_SP,REG_SP,-4);
             }
         }
         return;
@@ -435,6 +466,54 @@ void CodeGeneration::assembleAndPutCode(int op)
     PutF1(op,0,0,0);
 }
 
+void CodeGeneration::storeForVirtualReg(int virReg, int proxyIndex)
+{
+    int vRegIndex = virReg - REG_VIRTUAL;
+    int R_a = REG_PROXY + proxyIndex;
+    int R_b = REG_FP;
+    int valC = (VIRTUAL_IN_STACK - vRegIndex-1)*4;
+
+    int valC_1 = valC;
+    int valC_2 = valC;
+    if(valC > pow(2,15) || valC < -pow(2,15)) //+ overflow
+    {
+        int rest = valC & 1;
+        valC_1 = valC >> 1;
+        valC_2 = valC_1;
+        valC_2 = valC_2 + rest;
+        PutF1(OP_ADDI,REG_TEMP,REG_0,valC_1);
+        PutF1(OP_ADDI,REG_TEMP,REG_TEMP,valC_2);
+        PutF1(OP_STX,R_a,R_b,REG_TEMP);
+
+    }//make half and half(if odd number arg3_2 is 1 more)
+    else
+        PutF1(OP_STW,R_a,R_b,valC);
+}
+
+void CodeGeneration::loadForVirtualReg(int virReg, int proxyIndex)
+{
+    int vRegIndex = virReg - REG_VIRTUAL;
+    int R_a = REG_PROXY + proxyIndex;
+    int R_b = REG_FP;
+    int valC = (VIRTUAL_IN_STACK - vRegIndex -1)*4;
+
+    int valC_1 = valC;
+    int valC_2 = valC;
+    if(valC > pow(2,15) || valC < -pow(2,15)) //+ overflow
+    {
+        int rest = valC & 1;
+        valC_1 = valC >> 1;
+        valC_2 = valC_1;
+        valC_2 = valC_2 + rest;
+        PutF1(OP_ADDI,REG_TEMP,REG_0,valC_1);
+        PutF1(OP_ADDI,REG_TEMP,REG_TEMP,valC_2);
+        PutF1(OP_LDX,R_a,R_b,REG_TEMP);
+
+    }//make half and half(if odd number arg3_2 is 1 more)
+    else
+        PutF1(OP_LDW,R_a,R_b,valC);
+}
+
 void CodeGeneration::assembleAndPutCode(int op, int arg1)
 {
     OpCode opCode = (OpCode)op;
@@ -444,10 +523,22 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1)
             PutF1(op,0,0,arg1);
             break;
         case OP_RDD:
-            PutF1(op,arg1,0,0);
+            if(arg1 > 31) //Virtual Register
+            {
+                PutF1(op,REG_PROXY,0,0);
+                storeForVirtualReg(arg1,0);
+            }
+            else
+                PutF1(op,arg1,0,0);
             break;
         case OP_WRD:
         case OP_WRH:
+            if(arg1 > 31)
+            {
+                loadForVirtualReg(arg1,0);
+                arg1 = REG_PROXY;
+
+            }
             PutF1(op,0,arg1,0);
             break;
             // F2 Format
@@ -475,10 +566,26 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2)
         case OP_BGE:
         case OP_BLE:
         case OP_BGT:
-            PutF1(op,arg1,0,arg2);
+            if(arg1 > 31)
+            {
+                PutF1(op,REG_PROXY,0,arg2);
+                storeForVirtualReg(arg1,0);
+            }
+            else
+                PutF1(op,arg1,0,arg2);
             break;
             // F2 Format
         case OP_CHK:
+            if(arg1 > 31) {
+                loadForVirtualReg(arg1, 0);
+                arg1 = REG_PROXY;
+            }
+            if(arg2 > 31)
+            {
+                loadForVirtualReg(arg2, 1);
+                arg2 = REG_PROXY + 1;
+            }
+
             PutF2(op,arg1,0,arg2);
             break;
         default:
@@ -488,6 +595,16 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2)
 
 void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2, int arg3)
 {
+    int arg3_1 = arg3;
+    int arg3_2 = arg3;
+    if(arg3 > pow(2,15) || arg3 < -pow(2,15)) //+ overflow
+    {
+        int rest = arg3 & 1;
+        arg3_1 = arg3 >> 1;
+        arg3_2 = arg3_1;
+        arg3_2 = arg3_2 + rest;
+    }//make half and half(if odd number arg3_2 is 1 more)
+
     OpCode opCode = (OpCode)op;
     switch (opCode) {
         // F1 Format
@@ -505,10 +622,60 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2, int arg3)
         case OP_ASHI:
         case OP_LDW:
         case OP_POP:
+            if(arg2 > 31)
+            {
+                loadForVirtualReg(arg2, 0);
+                arg2 = REG_PROXY;
+            }
+            if(arg1 > 31)
+            {
+                if(arg3 > pow(2,15) || arg3 < -pow(2,15)) //+ overflow
+                {
+                    PutF1(OP_ADDI,REG_PROXY+1,REG_0,arg3_1);
+                    PutF1(OP_ADDI,REG_PROXY+1,REG_PROXY+1,arg3_2);
+                    PutF1(op-16,REG_PROXY,arg2,REG_PROXY+1);
+                }
+                else
+                    PutF1(op,REG_PROXY,arg2,arg3);
+
+                storeForVirtualReg(arg1,0);
+            }
+            else
+            {
+                if(arg3 > pow(2,15) || arg3 < -pow(2,15)) //+ overflow
+                {
+                    PutF1(OP_ADDI,REG_PROXY+1,REG_0,arg3_1);
+                    PutF1(OP_ADDI,REG_PROXY+1,REG_PROXY+1,arg3_2);
+                    PutF1(op-16,arg1,arg2,REG_PROXY+1);
+                }
+                else
+                    PutF1(op,arg1,arg2,arg3);
+            }
+            break;
+
+
         case OP_STW:
         case OP_PSH:
+            if(arg1 > 31)
+            {
+                loadForVirtualReg(arg1, 0);
+                arg1 = REG_PROXY;
+            }
+
+            if(arg2 > 31)
+            {
+                loadForVirtualReg(arg2, 1);
+                arg2 = REG_PROXY + 1;
+            }
+
+            if(arg3 > pow(2,15) || arg3 < -pow(2,15)) //+ overflow
+            {
+               //No cases until now
+            }
             PutF1(op,arg1,arg2,arg3);
+
             break;
+
             // F2 Format
         case OP_ADD:
         case OP_SUB:
@@ -523,9 +690,38 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2, int arg3)
         case OP_LSH:
         case OP_ASH:
         case OP_LDX:
-        case OP_STX:
-            PutF2(op,arg1,arg2,arg3);
+            if(arg2 > 31)
+            {
+                loadForVirtualReg(arg2, 0);
+                arg2 = REG_PROXY;
+            }
+            if(arg3 > 31)
+            {
+                loadForVirtualReg(arg3, 1);
+                arg3 = REG_PROXY+1;
+            }
+            if(arg1 > 31)
+            {
+                PutF1(op,REG_PROXY,arg2,arg3);
+                storeForVirtualReg(arg1,0);
+            }
+            else
+                PutF2(op,arg1,arg2,arg3);
             break;
+        case OP_STX:
+            if(arg1 > 31)
+            {
+                loadForVirtualReg(arg1, 0);
+                arg1 = REG_PROXY;
+            }
+
+            if(arg2 > 31)
+            {
+                loadForVirtualReg(arg2, 1);
+                arg2 = REG_PROXY + 1;
+            }
+
+            PutF1(op,arg1,arg2,arg3);
         default:
             cerr << "This opcode is not for two arguments" << endl;
     }

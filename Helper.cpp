@@ -400,7 +400,7 @@ bool isSameOperand(Result x, Result y){
     {
         switch(kind){
             case constKind :
-                return x.getConst() == y.getConst();
+                return (x.getConst() == y.getConst()) && (x.getConstPropVar() == y.getConstPropVar());
             case varKind :
                 return (x.getVariableName() == y.getVariableName()) && (x.getDefInst() == y.getDefInst());
             case instKind :
@@ -423,16 +423,32 @@ bool isInnerBlock(BlockKind blkKind)
      return (blkKind == blk_while_body || blkKind == blk_if_then || blkKind == blk_if_else);
 }
 
-bool isDefInstr(IROP op)
+bool isDefInstr(shared_ptr<IRFormat> code)
 {
-    return op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp || op == IR_adda ||
-            op == IR_phi || op == IR_read;
+    IROP op = code->getIROP();
+    if(op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp || op == IR_adda ||
+            op == IR_phi || op == IR_read || op == IR_load)
+        return true;
+
+    if(op == IR_bra)
+    {
+        Result hintOperand = code->operands.at(0);
+        if(hintOperand.isDiffFuncLoc() && hintOperand.hasReturnVal())//branch with return value;
+            return true;
+    }
+
+    return false;
 }
 
 OpCode irToOp(IROP irOp, OPFORMAT opFormat)
 {
     switch(irOp){
         case IR_add:
+            if(opFormat == OP_F1)
+                return OP_ADDI;
+            else
+                return OP_ADD;
+        case IR_adda:
             if(opFormat == OP_F1)
                 return OP_ADDI;
             else

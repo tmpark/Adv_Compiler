@@ -24,6 +24,16 @@ int main() {
     scanner->closeFile();
 
 #else
+
+    //shift test
+    /*
+    int a = 12431;
+    int b = a >> 1;
+    int aRest = a & 1;
+    int c = -a;
+    int cRest = c & 1;
+    int d = c >> 1;
+    cout << a << "\t" << b << "\t"<< aRest <<"\t"<< c << "\t" << d<< "\t" << cRest << endl;*/
     //Issue
     //Test4 not matched number of parameters, wrong array indexing -> intentional error
     //Test13 function is changed to procedure (Michael's mistake)
