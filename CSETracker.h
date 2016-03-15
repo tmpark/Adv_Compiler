@@ -18,6 +18,7 @@ public:
 
     //vector<shared_ptr<IRFormat>> candidateLoadInstructions;
     vector<shared_ptr<IRFormat>> candidateCSEInstructions;
+    vector<shared_ptr<IRFormat>> killingStores;
 private:
     shared_ptr<IRFormat> currentAddInst;
     shared_ptr<IRFormat> currentAddaInst;
@@ -27,7 +28,7 @@ private:
     shared_ptr<IRFormat> currentNegInst;
     shared_ptr<IRFormat> currentCmpInst;
     shared_ptr<IRFormat> currentLoadInst;
-    vector<shared_ptr<IRFormat>> killingStores;
+
 
 };
 

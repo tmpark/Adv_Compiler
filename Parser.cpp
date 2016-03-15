@@ -523,7 +523,7 @@ void Parser::whileStatement() {
 
                         //After inner block, ssa numbering should be revert to the previous state
                         ssaBuilder.revertToOuter(dominatingBlockNum);
-                        cseTracker.revertToOuter(cseRevertBlock,true);
+                        cseTracker.revertToOuter(cseRevertBlock,false);
                         if(finalizeAndStartNewBlock(blk_while_end, false, false,false))//After unconditional jump means going back without reservation
                             updateBlockForDT(dominatingBlockNum);
                         currentBlock->setOuterBlockKind(outerBlockKind);
@@ -1313,6 +1313,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
 
     //For common subexpression tracking
     shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
+
     ir_line->setPreviousSameOpInst(previousSameOpInst);
 
     cseTracker.setCurrentInst(irOp,ir_line);
@@ -2250,8 +2251,22 @@ void Parser::cseForWhileInst(int dominatingBlockNum) {
     {
         if(cseCandidate->getIROP() == IR_load && cseCandidate->operands.at(0).isArrayInst())
         {
-            shared_ptr<IRFormat> storeInst = cseTracker.getCurrentInstPtr(IR_load);
             bool cseAvail = true;
+            auto rit = cseTracker.killingStores.rbegin();
+            for(; rit!= cseTracker.killingStores.rend(); ++rit)
+            {
+                shared_ptr<IRFormat> killStore = *rit;
+                if(killStore->getBlkNo() >= dominatingBlockNum)
+                {
+                    if(cseCandidate->operands.at(0).getVariableName() == killStore->operands.at(1).getVariableName()) {
+                        cseAvail = false;
+                        break;
+                    }
+                }
+            }
+            /*
+            shared_ptr<IRFormat> storeInst = cseTracker.getCurrentInstPtr(IR_load);
+
             while(storeInst->getBlkNo() >= dominatingBlockNum)
             {
                 if(storeInst->getIROP() == IR_store)
@@ -2263,7 +2278,7 @@ void Parser::cseForWhileInst(int dominatingBlockNum) {
                     }
                 }
                 storeInst = storeInst->getPreviousSameOpInst();
-            }
+            }*/
             if(cseAvail)
                 CSEAvail.push_back(cseCandidate);
         }
@@ -2284,7 +2299,7 @@ void Parser::cseForWhileInst(int dominatingBlockNum) {
         {
             IROP irOp = cseAvail->getIROP();
             shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
-            if((previousSameOpInst == NULL) || (previousSameOpInst->getLineNo() != cseAvail->getLineNo()))
+            if((previousSameOpInst == NULL) || (previousSameOpInst->getLineNo() < cseAvail->getLineNo()))
             {
                 cseAvail->setPreviousSameOpInst(previousSameOpInst);
                 cseTracker.setCurrentInst(irOp,cseAvail);
