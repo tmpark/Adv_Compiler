@@ -1094,7 +1094,6 @@ Result Parser::designator() {
         while(scannerSym == openbracketToken)
         {
             Next();
-
             if(isExpression(scannerSym))
             {
                 if(i > 0) {
@@ -1104,6 +1103,7 @@ Result Parser::designator() {
                 }
                 Result tempIndex;
                 tempIndex = expression(); //z(index)
+
 
                 if(i > 0)
                     updatedIndex = emitIntermediate(IR_add,{updatedIndex,tempIndex});
@@ -1722,6 +1722,7 @@ void Parser::addVarSymbol(std::string symbol, SymType symType, std::vector<int> 
     int localVarSize = currentSymTable->getLocalVarSize() + varSize;
     //Make symbol
     shared_ptr<Symbol> newSymbol(new Symbol(symType, LOCAL_IN_STACK - localVarSize, arrayCapacity));
+    newSymbol->setVarSize(varSize);
 
     //Update symtable
     currentSymTable->insertVarSym(symbol,newSymbol);

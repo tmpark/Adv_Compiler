@@ -33,12 +33,8 @@ void CodeGeneration::doCodeGen()
     assembleAndPutCode(OP_ADD,REG_SP,0,REG_GP);//Initialize SP as GP
     assembleAndPutCode(OP_ADD,REG_FP,0,REG_GP);//Initialize FP as GP
 
-    if(globalVarSize != 0)
-        assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*(globalVarSize));//Move Stack pointer to reserve slots for global variable and facke return addr
-
-    if(numOfVRegs > 0)
-        assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*numOfVRegs);//Move Stack pointer to reserve slots for virtual register
-
+    //Move Stack pointer to reserve slots for face return, global variable, and, virtual regs
+    assembleAndPutCode(OP_ADDI,REG_SP,REG_SP,-4*(1 + globalVarSize + numOfVRegs));
 
     genCodeForBlock(GLOBAL_SCOPE_NAME,firstBlock);
 
@@ -301,6 +297,33 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
             int R_a = code->getRegNo();
             int R_b = firstOperand.getReg(functionName);
             int cVal = 0;
+
+            if(firstOperand.isArrayInst()) {
+                Parser *parser = Parser::instance();
+                string stringName = firstOperand.getVariableName();
+                SymTable symTable = parser->getSymTable(functionName);
+                auto symIter = symTable.varSymbolList.find(stringName);
+                int baseReg;
+                int topLoc;
+                if (symIter == symTable.varSymbolList.end())//which means global
+                {
+                    baseReg = REG_GP;
+                    symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
+                    shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
+                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
+                    assembleAndPutCode(OP_ADDI, REG_PROXY, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_PROXY);
+                }
+                else {
+                    shared_ptr<Symbol> sym = symIter->second;
+                    baseReg = REG_FP;
+                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
+                    assembleAndPutCode(OP_ADDI, REG_PROXY, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_PROXY);
+                }
+            }
+
+
             assembleAndPutCode(OP_LDW,R_a,R_b,cVal);
         }
         else if(irOp == IR_bra) //should distinguish whether it is Normal jump or func call

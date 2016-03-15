@@ -196,16 +196,16 @@ class Symbol
 
 public:
     Symbol(){ symType = sym_err; cost = 0;
-        numOfParam = 0;paramIndex = -1;};
+        numOfParam = 0;paramIndex = -1;varSize = 0;};
     Symbol(SymType symType, int loc)
     { this->symType = symType;this->symBaseAddr = loc;
-        numOfParam = 0;cost = 0;paramIndex = -1;};
+        numOfParam = 0;cost = 0;paramIndex = -1;varSize = 0;};
     Symbol(SymType symType, int loc, vector<int> arrayCapacity)
     { this->symType = symType; this->symBaseAddr = loc; this->arrayCapacity = arrayCapacity;
-        numOfParam = 0;cost = 0;paramIndex = -1;};
+        numOfParam = 0;cost = 0;paramIndex = -1;varSize = 0;};
     Symbol(SymType symType, int loc, int numOfParam) //For fucntion symbol
     { this->symType = symType; this->symBaseAddr = loc;
-        this->numOfParam = numOfParam;cost = 0;paramIndex = -1;};
+        this->numOfParam = numOfParam;cost = 0;paramIndex = -1;varSize = 0;};
     void setSymType(SymType arg){symType = arg;};
     SymType getSymType(){return symType;};
     void setBaseAddr(int arg){ symBaseAddr = arg;};
@@ -223,6 +223,8 @@ public:
             return regListIter->second;};
     void setParamIndex(int arg){paramIndex = arg;};
     int getParamIndex(){return paramIndex;};
+    void setVarSize(int arg){varSize = arg;};
+    int getVarSize(){return varSize;};
 
     std::vector<int> arrayCapacity; //only for array : capacity and dimension
 
@@ -234,6 +236,7 @@ private:
     int paramIndex;
     int numOfParam; //Only for function
     int cost; //Only for var
+    int varSize;
     unordered_map<string,int> regList;
 };
 
