@@ -114,11 +114,11 @@ int main() {
 
         string executable = binaryFolder + sourceFileName + "/" + sourceFileName + ".out";
         string execCommand = "java -classpath " + binaryFolder + " " + simulator + " " + executable;
-/*
+
         cout << sourceFileName << "'s output: " <<endl;
         system(execCommand.c_str());
         cout << endl;
-*/
+
         //parser->printIRCodes(parser->IRCodes); //Debug
         //parser->printSymbolTable(); //Debug
         parser->closeFile();
