@@ -311,15 +311,15 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
                     symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
                     shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
                     topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_PROXY, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_PROXY);
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
                 }
                 else {
                     shared_ptr<Symbol> sym = symIter->second;
                     baseReg = REG_FP;
                     topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_PROXY, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_PROXY);
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
                 }
             }
 
@@ -360,8 +360,8 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
             int outputReg;
             if(isFirstOperandConst)
             {
-                assembleAndPutCode(OP_ADDI,REG_PROXY,0,firstOperand.getConst());
-                outputReg = REG_PROXY;
+                assembleAndPutCode(OP_ADDI,REG_TEMP,0,firstOperand.getConst());
+                outputReg = REG_TEMP;
             }
             else
                 outputReg = firstOperand.getReg(functionName);
@@ -385,8 +385,8 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
 
             OPFORMAT opFormat;
             if(isFirstOperandConst) {
-                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
-                firstOperandReg = REG_PROXY;
+                assembleAndPutCode(OP_ADDI, REG_TEMP, 0, firstOperand.getConst());
+                firstOperandReg = REG_TEMP;
             }
             else
                 firstOperandReg = firstOperand.getReg(functionName);
@@ -407,9 +407,36 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
             int R_a;
             int R_b = secondOperand.getReg(functionName);
             int valC = 0;
+
+            if(secondOperand.isArrayInst()) {
+                Parser *parser = Parser::instance();
+                string stringName = secondOperand.getVariableName();
+                SymTable symTable = parser->getSymTable(functionName);
+                auto symIter = symTable.varSymbolList.find(stringName);
+                int baseReg;
+                int topLoc;
+                if (symIter == symTable.varSymbolList.end())//which means global
+                {
+                    baseReg = REG_GP;
+                    symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
+                    shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
+                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
+                }
+                else {
+                    shared_ptr<Symbol> sym = symIter->second;
+                    baseReg = REG_FP;
+                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
+                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
+                }
+            }
+
+
             if(isFirstOperandConst) {
-                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
-                R_a = REG_PROXY;
+                assembleAndPutCode(OP_ADDI, REG_TEMP, 0, firstOperand.getConst());
+                R_a = REG_TEMP;
             }
             else
                 R_a = firstOperand.getReg(functionName);
@@ -422,8 +449,8 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
             int secondOperandReg = secondOperand.getReg(functionName);
             int destReg = secondOperandReg;
             if(isFirstOperandConst) {
-                assembleAndPutCode(OP_ADDI, REG_PROXY, 0, firstOperand.getConst());
-                firstOperandReg = REG_PROXY;
+                assembleAndPutCode(OP_ADDI, REG_TEMP, 0, firstOperand.getConst());
+                firstOperandReg = REG_TEMP;
             }
             else
                 firstOperandReg = firstOperand.getReg(functionName);
@@ -450,8 +477,8 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
                 int R_b = secondOperandReg;
                 if(isFirstOperandConst) {
                     int val_c = firstOperand.getConst();
-                    assembleAndPutCode(OP_ADDI, REG_PROXY, 0, val_c);
-                    R_a = REG_PROXY;
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, 0, val_c);
+                    R_a = REG_TEMP;
                 }
                 else
                     R_a = firstOperand.getReg(functionName);
@@ -464,8 +491,8 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
                 int R_c;
                 if(isFirstOperandConst) {
                     int val_c = firstOperand.getConst();
-                    assembleAndPutCode(OP_ADDI, REG_PROXY, R_b, val_c);
-                    R_c = REG_PROXY;
+                    assembleAndPutCode(OP_ADDI, REG_TEMP, R_b, val_c);
+                    R_c = REG_TEMP;
                 }
                 else
                     R_c = firstOperand.getReg(functionName);
@@ -504,9 +531,9 @@ void CodeGeneration::storeForVirtualReg(int virReg, int proxyIndex)
         valC_1 = valC >> 1;
         valC_2 = valC_1;
         valC_2 = valC_2 + rest;
-        PutF1(OP_ADDI,REG_TEMP,REG_0,valC_1);
-        PutF1(OP_ADDI,REG_TEMP,REG_TEMP,valC_2);
-        PutF1(OP_STX,R_a,R_b,REG_TEMP);
+        PutF1(OP_ADDI,REG_TEMP + 1,REG_0,valC_1);
+        PutF1(OP_ADDI,REG_TEMP + 1,REG_TEMP + 1,valC_2);
+        PutF1(OP_STX,R_a,R_b,REG_TEMP + 1);
 
     }//make half and half(if odd number arg3_2 is 1 more)
     else
@@ -528,9 +555,9 @@ void CodeGeneration::loadForVirtualReg(int virReg, int proxyIndex)
         valC_1 = valC >> 1;
         valC_2 = valC_1;
         valC_2 = valC_2 + rest;
-        PutF1(OP_ADDI,REG_TEMP,REG_0,valC_1);
-        PutF1(OP_ADDI,REG_TEMP,REG_TEMP,valC_2);
-        PutF1(OP_LDX,R_a,R_b,REG_TEMP);
+        PutF1(OP_ADDI,REG_TEMP + 1,REG_0,valC_1);
+        PutF1(OP_ADDI,REG_TEMP + 1,REG_TEMP + 1,valC_2);
+        PutF1(OP_LDX,R_a,R_b,REG_TEMP + 1);
 
     }//make half and half(if odd number arg3_2 is 1 more)
     else

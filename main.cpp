@@ -50,8 +50,8 @@ int main() {
 
     for(int i = 1 ; i < 35 ; i++)
     {
-        if(i == 4)
-            continue;
+        //if(i == 4)
+        //    continue;
 
         string testNum = to_string(i);
         size_t numOfChar = testNum.size();

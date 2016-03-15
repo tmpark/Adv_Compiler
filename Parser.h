@@ -158,6 +158,7 @@ private:
     //CSE
     CSETracker cseTracker;
     void cseForLoad(int dominatingBlockNum);
+    void cseForWhileInst(int dominatingBlockNum);
 /*
     //Code emit related
     void PutF1(int op, int a, int b, int c);

@@ -573,8 +573,10 @@ void Parser::whileStatement() {
                         }
                         loopDepth--;
                         //When completely out of while block, do the cse for load
-                        if(ssaBuilder.currentBlockKind.empty() || ssaBuilder.currentBlockKind.top() != blk_while_body)
+                        if(ssaBuilder.currentBlockKind.empty() || ssaBuilder.currentBlockKind.top() != blk_while_body) {
                             cseForLoad(dominatingBlockNum); // Do for for innner block
+                            cseForWhileInst(dominatingBlockNum);
+                        }
                     }
                     else
                         Error("whileStatement",{getTokenStr(odToken)});
@@ -1284,33 +1286,42 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     result.setInst(ir_line);
     instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
-    //Check whether elimination is possible
+    //Check whether elimination is possible(general case)
     if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg ||
-            irOp == IR_cmp|| irOp == IR_load)
-    {
-        //skip inner block of load for later cse
-        if(!ssaBuilder.currentBlockKind.empty() && ssaBuilder.currentBlockKind.top() == blk_while_body && irOp == IR_load)
-        {
-            shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
-            //CSE candidate(no store within a block) : there would be other store in outer so we don't know
-            if(existingCommonSub != NULL) {
-                ir_line->setPreviousSameOpInst(existingCommonSub);
-                cseTracker.loadInstructions.push_back(ir_line);
+            irOp == IR_cmp|| ((irOp == IR_load)&&(ssaBuilder.currentBlockKind.empty() || ssaBuilder.currentBlockKind.top() != blk_while_body) )) {
+        shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp, ir_line->operands);
+
+        if (existingCommonSub != NULL) {
+            //Skip CSE for later
+            if(!ssaBuilder.currentBlockKind.empty() && ssaBuilder.currentBlockKind.top() == blk_while_body)
+            {
+                ir_line->setCommonSub(existingCommonSub);
+                cseTracker.candidateCSEInstructions.push_back(ir_line);
             }
-        }
-            //cse for other instructions
-        else
-        {
-            shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
-            if(existingCommonSub != NULL) {
+            else
+            {
                 Result returnedVal;
                 returnedVal.setInst(existingCommonSub);
                 return returnedVal;
             }
+
+        }
+
+    }
+
+
+    //save load in while for later elimination
+    if(!ssaBuilder.currentBlockKind.empty() && ssaBuilder.currentBlockKind.top() == blk_while_body && irOp == IR_load)
+    {
+        shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(irOp,ir_line->operands);
+        //CSE candidate(no store within a block) : there would be other store in outer so we don't know
+        if(existingCommonSub != NULL) {
+            ir_line->setCommonSub(existingCommonSub);
+            cseTracker.candidateLoadInstructions.push_back(ir_line);
         }
     }
-    //For common subexpression tracking
 
+    //For common subexpression tracking
     shared_ptr<IRFormat> previousSameOpInst = cseTracker.getCurrentInstPtr(irOp);
     ir_line->setPreviousSameOpInst(previousSameOpInst);
 
@@ -2148,7 +2159,7 @@ void Parser::cseForLoad(int dominatingBlockNum) {
 
     vector<shared_ptr<IRFormat>> loadsCSEAvail;
     //For all loads
-    for(auto loadInst : cseTracker.loadInstructions)
+    for(auto loadInst : cseTracker.candidateLoadInstructions)
     {
         shared_ptr<IRFormat> storeInst = cseTracker.getCurrentInstPtr(IR_load);
         bool cseAvail = true;
@@ -2168,6 +2179,40 @@ void Parser::cseForLoad(int dominatingBlockNum) {
             loadsCSEAvail.push_back(loadInst);
     }
 
+    auto rit = loadsCSEAvail.rbegin();
+    for(; rit!= loadsCSEAvail.rend(); ++rit) {
+        shared_ptr<IRFormat> loadAvail = *rit;
+
+        for (int i = dominatingBlockNum; i < currentBlock->getBlockNum(); i++) {
+            string currentFunc = scopeStack.top();
+            vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
+            shared_ptr<BasicBlock> targetBlock = basicBlockList.at(i - ssaBuilder.getStartBlock());
+
+            if(loadAvail->getBlkNo() == i)
+            {
+                targetBlock->irCodes.erase(remove(targetBlock->irCodes.begin(),
+                                                      targetBlock->irCodes.end(),loadAvail),
+                                                                     targetBlock->irCodes.end());
+            }
+
+            //Replace instructions of load
+            for (auto &irCode : targetBlock->irCodes) {
+                for (auto &operand : irCode->operands) {
+                     if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
+                            operand.setInst(loadAvail->getCommonSub());
+                }
+            }
+
+            for (auto &irCode : targetBlock->phiCodes) {
+                for (auto &operand : irCode->operands) {
+                    if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
+                            operand.setInst(loadAvail->getCommonSub());
+                }
+            }
+        }
+    }
+
+    /*
     for (int i = dominatingBlockNum; i < currentBlock->getBlockNum(); i++) {
         string currentFunc = scopeStack.top();
         vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
@@ -2191,7 +2236,7 @@ void Parser::cseForLoad(int dominatingBlockNum) {
                 for (auto &operand : irCode->operands) {
 
                     if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
-                        operand.setInst(loadAvail->getPreviousSameOpInst());
+                        operand.setInst(loadAvail->getCommonSubForLoad());
                 }
             }
         }
@@ -2202,14 +2247,59 @@ void Parser::cseForLoad(int dominatingBlockNum) {
                 for(auto loadAvail : loadsCSEAvail)
                 {
                     if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == loadAvail->getLineNo()))
-                        operand.setInst(loadAvail->getPreviousSameOpInst());
+                        operand.setInst(loadAvail->getCommonSub());
                 }
             }
         }
+    }*/
+    cseTracker.candidateLoadInstructions.clear();
+}
 
 
+void Parser::cseForWhileInst(int dominatingBlockNum) {
+
+    vector<shared_ptr<IRFormat>> CSEAvail;
+    for(auto cseCandidate : cseTracker.candidateCSEInstructions)
+    {
+        shared_ptr<IRFormat> commonSub = cseCandidate->getCommonSub();
+        if(isCommonSub(cseCandidate,commonSub))
+            CSEAvail.push_back(cseCandidate);
     }
-    cseTracker.loadInstructions.clear();
+
+
+    auto rit = CSEAvail.rbegin();
+    for(; rit!= CSEAvail.rend(); ++rit) {
+        shared_ptr<IRFormat> cseAvail = *rit;
+
+        for (int i = dominatingBlockNum; i < currentBlock->getBlockNum(); i++) {
+            string currentFunc = scopeStack.top();
+            vector<shared_ptr<BasicBlock>> basicBlockList = functionList.at(currentFunc);
+            shared_ptr<BasicBlock> targetBlock = basicBlockList.at(i - ssaBuilder.getStartBlock());
+
+            if(cseAvail->getBlkNo() == i)
+            {
+                targetBlock->irCodes.erase(remove(targetBlock->irCodes.begin(),
+                                                  targetBlock->irCodes.end(),cseAvail),
+                                                             targetBlock->irCodes.end());
+            }
+
+
+            for (auto &irCode : targetBlock->irCodes) {
+                for (auto &operand : irCode->operands) {
+                    if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == cseAvail->getLineNo()))
+                        operand.setInst(cseAvail->getCommonSub());
+                }
+            }
+
+            for (auto &irCode : targetBlock->phiCodes) {
+                for (auto &operand : irCode->operands) {
+                    if(operand.getKind() == instKind && (operand.getInst()->getLineNo() == cseAvail->getLineNo()))
+                        operand.setInst(cseAvail->getCommonSub());
+                }
+            }
+        }
+    }
+    cseTracker.candidateCSEInstructions.clear();
 }
 /*
 void Parser::PutF1(int op, int a, int b, int c) {

@@ -600,3 +600,40 @@ void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat)
             cerr << "there is no opcode like this" << endl;
     }
 }
+
+bool isCommonSub(shared_ptr<IRFormat> inst1 ,shared_ptr<IRFormat> inst2)
+{
+    if(inst1->getIROP() != inst2->getIROP())
+        return false;
+    size_t numOfOperands = inst1->operands.size();
+    if(numOfOperands != inst2->operands.size())
+        return false;
+    for(int i = 0 ; i < numOfOperands ; i++)
+    {
+        Result inst1Operand = inst1->operands.at(i);
+        Result inst2Operand = inst2->operands.at(i);
+        Kind kind = inst1Operand.getKind();
+        if(kind != inst2Operand.getKind())
+            return false;
+        if(kind == instKind)
+        {
+            if(inst1Operand.getInst()->getLineNo() != inst2Operand.getInst()->getLineNo())
+                return false;
+        }
+        else if(kind == varKind)
+        {
+            if(inst1Operand.getVariableName() != inst2Operand.getVariableName())
+                return false;
+            if(inst1Operand.getDefInst() != inst2Operand.getDefInst())
+                return false;
+        }
+        else if(kind == constKind)
+        {
+            if(inst1Operand.getConst() != inst2Operand.getConst())
+                return false;
+            if(inst1Operand.getConstPropVar() != inst2Operand.getConstPropVar())
+                return false;
+        }
+    }
+    return true;
+}

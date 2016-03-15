@@ -14,7 +14,7 @@
 #define PARAM_IN_STACK 1
 #define LOCAL_IN_STACK -1
 #define REG_0 0
-#define REG_TEMP 24
+#define REG_TEMP 23
 #define REG_PROXY 25
 #define NUM_OF_PROXY_REG 2
 #define REG_RET_VAL 27
@@ -172,6 +172,10 @@ public:
 
     shared_ptr<IRFormat>  getPreviousSameOpInst(){return previousSameOpInst;};
     void setPreviousSameOpInst(shared_ptr<IRFormat> arg){previousSameOpInst = arg;};
+
+    shared_ptr<IRFormat> getCommonSub(){return commonSub;};
+    void setCommonSub(shared_ptr<IRFormat> arg){ commonSub = arg;};
+
     std::vector<Result> operands;
 
     void setRegNo(int arg){regNo = arg;};
@@ -188,6 +192,7 @@ private:
     IROP ir_op;
     int cost;
     shared_ptr<IRFormat> previousSameOpInst;
+    shared_ptr<IRFormat> commonSub;
 
 };
 
@@ -438,4 +443,5 @@ bool isInnerBlock(BlockKind blkKind);
 bool isDefInstr(shared_ptr<IRFormat> code);
 OpCode irToOp(IROP irOp, OPFORMAT opFormat);
 void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat);
+bool isCommonSub(shared_ptr<IRFormat> inst1 ,shared_ptr<IRFormat> inst2);
 #endif //ADV_COMPILER_HELPER_H

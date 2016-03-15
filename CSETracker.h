@@ -16,8 +16,8 @@ public:
     void setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst);
     void revertToOuter(int blockNum, bool endOfInnerBlock);
 
-    vector<shared_ptr<IRFormat>> loadInstructions;
-
+    vector<shared_ptr<IRFormat>> candidateLoadInstructions;
+    vector<shared_ptr<IRFormat>> candidateCSEInstructions;
 private:
     shared_ptr<IRFormat> currentAddInst;
     shared_ptr<IRFormat> currentAddaInst;
