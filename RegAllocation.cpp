@@ -525,8 +525,16 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
             for (auto liveEntry : liveSet)
                 makeEdge(node, liveEntry.second);
         }
+
+        if(code->getIROP() == IR_load)
+            continue;
+
+        int index = 0;
         for(auto operand : code->operands)
         {
+            if(code->getIROP()  == IR_store && index == 1)
+                continue;
+
             Kind operandKind = operand.getKind();
             if(operandKind == instKind) {
                 shared_ptr<IRFormat> inst = operand.getInst();
@@ -568,6 +576,7 @@ void RegAllocation::getLiveSet(unordered_map<int,shared_ptr<Node>> &liveSet, vec
                     node = candidateNode;
                 liveSet.insert({node->getNodeNum(),node});
             }
+            index++;
         }
     }
 }

@@ -293,38 +293,55 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
 
         if(irOp == IR_load)
         {
-
+            bool arrayLoad = firstOperand.isArrayInst();
+            string stringName = firstOperand.getVariableName();
             int R_a = code->getRegNo();
-            int R_b = firstOperand.getReg(functionName);
-            int cVal = 0;
 
-            if(firstOperand.isArrayInst()) {
+            shared_ptr<IRFormat> actualCode = firstOperand.getInst();
+            firstOperand = actualCode->operands.at(0);
+            int R_b = firstOperand.getReg(functionName);
+            Result secondOperand = actualCode->operands.at(1);
+
+            if(arrayLoad) {
                 Parser *parser = Parser::instance();
-                string stringName = firstOperand.getVariableName();
                 SymTable symTable = parser->getSymTable(functionName);
                 auto symIter = symTable.varSymbolList.find(stringName);
                 int baseReg;
-                int topLoc;
+                int maxMemSize;
                 if (symIter == symTable.varSymbolList.end())//which means global
                 {
                     baseReg = REG_GP;
                     symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
                     shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
-                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
+                    maxMemSize = sym->getVarSize() * 4;
+                    if(secondOperand.getKind() == constKind)
+                    {
+                        assembleAndPutCode(OP_ADDI, REG_TEMP, REG_0, secondOperand.getConst());
+                        assembleAndPutCode(OP_CHKI, REG_TEMP, maxMemSize);
+                    }
+                    else
+                        assembleAndPutCode(OP_CHKI, secondOperand.getReg(functionName), maxMemSize);
                 }
                 else {
                     shared_ptr<Symbol> sym = symIter->second;
                     baseReg = REG_FP;
-                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
+                    maxMemSize = sym->getVarSize() * 4;
+                    if(secondOperand.getKind() == constKind)
+                    {
+                        assembleAndPutCode(OP_ADDI, REG_TEMP, REG_0, secondOperand.getConst());
+                        assembleAndPutCode(OP_CHKI, REG_TEMP, maxMemSize);
+                    }
+                    else
+                        assembleAndPutCode(OP_CHKI, secondOperand.getReg(functionName), maxMemSize);
                 }
             }
 
 
-            assembleAndPutCode(OP_LDW,R_a,R_b,cVal);
+            if(secondOperand.getKind() == constKind)
+                assembleAndPutCode(OP_LDW,R_a,R_b,secondOperand.getConst());
+            else
+                assembleAndPutCode(OP_LDX,R_a,R_b,secondOperand.getReg(functionName));
+
         }
         else if(irOp == IR_bra) //should distinguish whether it is Normal jump or func call
         {
@@ -377,7 +394,7 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
     if(numOfIROperand > 1)
     {
         //kinds of adds
-        if(irOp == IR_add || irOp == IR_sub || irOp == IR_mul || irOp == IR_div || irOp == IR_cmp || irOp == IR_adda)
+        if(irOp == IR_add || irOp == IR_sub || irOp == IR_mul || irOp == IR_div || irOp == IR_cmp)
         {
             int destReg = code->getRegNo();
             int firstOperandReg;
@@ -405,42 +422,65 @@ void CodeGeneration::insertCode(string functionName, shared_ptr<IRFormat> code)
         else if(irOp == IR_store)
         {
             int R_a;
-            int R_b = secondOperand.getReg(functionName);
-            int valC = 0;
-
-            if(secondOperand.isArrayInst()) {
-                Parser *parser = Parser::instance();
-                string stringName = secondOperand.getVariableName();
-                SymTable symTable = parser->getSymTable(functionName);
-                auto symIter = symTable.varSymbolList.find(stringName);
-                int baseReg;
-                int topLoc;
-                if (symIter == symTable.varSymbolList.end())//which means global
-                {
-                    baseReg = REG_GP;
-                    symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
-                    shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
-                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
-                }
-                else {
-                    shared_ptr<Symbol> sym = symIter->second;
-                    baseReg = REG_FP;
-                    topLoc = (sym->getBaseAddr() + sym->getVarSize()) * 4;
-                    assembleAndPutCode(OP_ADDI, REG_TEMP, baseReg, topLoc);
-                    assembleAndPutCode(OP_CHK, R_b, REG_TEMP);
-                }
-            }
-
-
             if(isFirstOperandConst) {
                 assembleAndPutCode(OP_ADDI, REG_TEMP, 0, firstOperand.getConst());
                 R_a = REG_TEMP;
             }
             else
                 R_a = firstOperand.getReg(functionName);
-            assembleAndPutCode(OP_STW,R_a,R_b,valC);
+
+            bool arrayStore = secondOperand.isArrayInst();
+            string stringName = secondOperand.getVariableName();
+
+            shared_ptr<IRFormat> actualCode = secondOperand.getInst();
+            firstOperand = actualCode->operands.at(0);
+            secondOperand = actualCode->operands.at(1);
+
+            if(arrayStore) {
+                Parser *parser = Parser::instance();
+                SymTable symTable = parser->getSymTable(functionName);
+                auto symIter = symTable.varSymbolList.find(stringName);
+                int baseReg;
+                int maxMemSize;
+                if (symIter == symTable.varSymbolList.end())//which means global
+                {
+                    baseReg = REG_GP;
+                    symTable = parser->getSymTable(GLOBAL_SCOPE_NAME);
+                    shared_ptr<Symbol> sym = symTable.varSymbolList.at(stringName);
+                    maxMemSize = sym->getVarSize() * 4;
+                    if(secondOperand.getKind() == constKind)
+                    {
+                        assembleAndPutCode(OP_ADDI, REG_TEMP, REG_0, secondOperand.getConst());
+                        assembleAndPutCode(OP_CHKI, REG_TEMP, maxMemSize);
+                    }
+                    else
+                        assembleAndPutCode(OP_CHKI, secondOperand.getReg(functionName), maxMemSize);
+                }
+                else {
+                    shared_ptr<Symbol> sym = symIter->second;
+                    baseReg = REG_FP;
+                    maxMemSize = sym->getVarSize() * 4;
+                    if(secondOperand.getKind() == constKind)
+                    {
+                        assembleAndPutCode(OP_ADDI, REG_TEMP, REG_0, secondOperand.getConst());
+                        assembleAndPutCode(OP_CHKI, REG_TEMP, maxMemSize);
+                    }
+                    else
+                        assembleAndPutCode(OP_CHKI, secondOperand.getReg(functionName), maxMemSize);
+                }
+            }
+
+
+            int R_b = firstOperand.getReg(functionName);
+
+            if(secondOperand.getKind() == constKind)
+                assembleAndPutCode(OP_STW,R_a,R_b,secondOperand.getConst());
+            else
+                assembleAndPutCode(OP_STX,R_a,R_b,secondOperand.getReg(functionName));
+
+
+
+
         }
         else if(irOp == IR_move)
         {
@@ -610,6 +650,13 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2)
     switch (opCode) {
         // F1 Format
         case OP_CHKI:
+            if(arg1 > 31)
+            {
+                loadForVirtualReg(arg1, 0);
+                arg1 = REG_PROXY;
+            }
+            PutF1(op,arg1,0,arg2);
+            break;
         case OP_BEQ:
         case OP_BNE:
         case OP_BLT:
@@ -772,8 +819,9 @@ void CodeGeneration::assembleAndPutCode(int op, int arg1, int arg2, int arg3)
             }
 
             PutF1(op,arg1,arg2,arg3);
+            break;
         default:
-            cerr << "This opcode is not for two arguments" << endl;
+            cerr << "This opcode is not for three arguments" << endl;
     }
 }
 

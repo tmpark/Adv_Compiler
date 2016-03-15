@@ -35,6 +35,7 @@ DefinedInfo SSABuilder::getDefinedInfo(string var)
 
 void SSABuilder:: prepareForProcess(string var,shared_ptr<Symbol> sym, DefinedInfo defInfo)
 {
+
     auto definedInfoListIter = definedInfoTable.find(var);
     varName = var;
     varSym = sym;

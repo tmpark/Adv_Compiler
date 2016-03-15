@@ -78,8 +78,8 @@ shared_ptr<IRFormat> CSETracker::getCurrentInstPtr(IROP irOp)
     {
         case IR_add:
             return currentAddInst;
-        case IR_adda:
-            return currentAddaInst;
+//        case IR_adda:
+//            return currentAddaInst;
         case IR_sub:
             return currentSubInst;
         case IR_mul:
@@ -105,9 +105,9 @@ void CSETracker::setCurrentInst(IROP irOp, shared_ptr<IRFormat> currentInst)
         case IR_add:
                 currentAddInst = currentInst;
             break;
-        case IR_adda:
-                currentAddaInst = currentInst;
-            break;
+//        case IR_adda:
+//                currentAddaInst = currentInst;
+//            break;
         case IR_sub:
                 currentSubInst = currentInst;
             break;
@@ -144,8 +144,8 @@ void CSETracker:: revertToOuter(int blockNum, bool endOfInnerBlock)
         currentMulInst = currentMulInst->getPreviousSameOpInst();
     while(!(currentDivInst == NULL || currentDivInst->getBlkNo() <= blockNum))
         currentDivInst = currentDivInst->getPreviousSameOpInst();
-    while(!(currentAddaInst == NULL || currentAddaInst->getBlkNo() <= blockNum))
-        currentAddaInst = currentAddaInst->getPreviousSameOpInst();
+//    while(!(currentAddaInst == NULL || currentAddaInst->getBlkNo() <= blockNum))
+//        currentAddaInst = currentAddaInst->getPreviousSameOpInst();
     while(!(currentNegInst == NULL || currentNegInst->getBlkNo() <= blockNum))
         currentNegInst = currentNegInst->getPreviousSameOpInst();
     while(!(currentCmpInst == NULL || currentCmpInst->getBlkNo() <= blockNum))

@@ -823,7 +823,7 @@ Result Parser::funcCall() {
                     Result storedValue;
                     Kind defKind = defInfo.getKind();
                     //store globals having been defined
-                    if(defKind != errKind && defKind != reloadKind)//without No definition or definition nullired case
+                    if(defKind != errKind && defKind != reloadKind)//without No definition or definition nullified case
                     {
                         if(defKind == constKind)
                         {
@@ -840,7 +840,7 @@ Result Parser::funcCall() {
                         int loc = sym->getBaseAddr()*4;
                         Result operandGP;operandGP.setReg(REG_GP);
                         Result operandLoc;operandLoc.setConst(loc);
-                        Result addrToStore = emitIntermediate(IR_add,{operandGP,operandLoc});
+                        Result addrToStore = emitIntermediate(IR_adda,{operandGP,operandLoc});
                         emitIntermediate(IR_store,{storedValue,addrToStore});
                     }
                 }
@@ -931,8 +931,13 @@ Result Parser::assignment() {
                 if(isExpression(scannerSym))
                 {
                     y = expression();
-                    if(x.isArrayInst())
-                        result = emitIntermediate(IR_store,{y,x});
+                    if(x.isArrayInst()) {
+                        Result indexResult;indexResult.setInst(x.getIndexInst());
+                        string arrayString = x.getVariableName();
+                        x = emitIntermediate(IR_adda,{x,indexResult});
+                        x.setArrayInst(arrayString);
+                        result = emitIntermediate(IR_store, {y, x});
+                    }
                     else {
 
                         result = emitIntermediate(IR_move, {y,x});
@@ -1048,6 +1053,10 @@ Result Parser::factor()
     {
         result = designator();
         if(result.isArrayInst()) {
+            Result indexResult;indexResult.setInst(result.getIndexInst());
+            string arrayString = result.getVariableName();
+            result = emitIntermediate(IR_adda,{result,indexResult});
+            result.setArrayInst(arrayString);
             result = emitIntermediate(IR_load, {result});//load value of the index
         }
     }
@@ -1133,8 +1142,6 @@ Result Parser::designator() {
             x.setConst(xSymbol->getBaseAddr()*4);
             Result indexAdjust;indexAdjust.setConst(4);
             updatedIndex = emitIntermediate(IR_mul,{updatedIndex,indexAdjust}); // index * 4(word size)
-
-
             SymTable symTable = symTableList.at(scopeStack.top());
             auto symIter = symTable.varSymbolList.find(variableName);
             //if array not exist in local var: global array
@@ -1143,8 +1150,9 @@ Result Parser::designator() {
             else
                 y.setReg(REG_FP);//Frame pointer
 
-            y = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
-            result = emitIntermediate(IR_adda,{y,updatedIndex});//base address + index
+            result = emitIntermediate(IR_add,{y,x});//y: base address(FP + x's base)
+            result.setIndexInst(updatedIndex.getInst());
+            //result = emitIntermediate(IR_adda,{y,updatedIndex});//base address + index
             result.setArrayInst(variableName);
         }
         else
@@ -1248,7 +1256,7 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
                 int loc = sym->getBaseAddr()*4;
                 Result operandGP;operandGP.setReg(REG_GP);
                 Result operandLoc;operandLoc.setConst(loc);
-                Result addrToLoad = emitIntermediate(IR_add,{operandGP,operandLoc});addrToLoad.setArrayInst(var);
+                Result addrToLoad = emitIntermediate(IR_adda,{operandGP,operandLoc});//addrToLoad.setArrayInst(var);
                 Result loadedVal = emitIntermediate(IR_load,{addrToLoad});
                 DefinedInfo defInfo;defInfo.setInst(loadedVal.getInst()->getLineNo(),loadedVal.getInst());
                 ssaBuilder.prepareForProcess(var,sym,defInfo);
@@ -1290,18 +1298,23 @@ Result Parser::emitIntermediate(IROP irOp,vector<Result> x)
     instructionBlockPair.insert({IRpc, currentBlock});//it is emitted now in current block
 
     //Check whether elimination is possible(general case)
-    if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub || irOp == IR_adda || irOp == IR_neg ||
+    if(irOp == IR_add || irOp == IR_mul || irOp == IR_div || irOp == IR_sub ||  irOp == IR_neg ||
             irOp == IR_cmp|| irOp == IR_load){
 
             if(!ssaBuilder.currentBlockKind.empty() && ssaBuilder.currentBlockKind.top() == blk_while_body)
             {
+
                 cseTracker.candidateCSEInstructions.push_back(ir_line);
             }
             else
             {
                 shared_ptr<IRFormat> existingCommonSub = cseTracker.findExistingCommonSub(ir_line);
                 if (existingCommonSub != NULL) {
-                    //Skip CSE for later
+                    if(irOp == IR_load) //Remove also adda
+                    {
+                        //IRCodes.pop_back();//I don't know why?
+                        currentBlock->irCodes.pop_back();
+                    }
                     Result returnedVal;
                     returnedVal.setInst(existingCommonSub);
                     return returnedVal;
@@ -2317,6 +2330,13 @@ void Parser::cseForWhileInst(int dominatingBlockNum) {
                 targetBlock->irCodes.erase(remove(targetBlock->irCodes.begin(),
                                                   targetBlock->irCodes.end(),cseAvail),
                                                              targetBlock->irCodes.end());
+                //if load is deleted, according adda also deleted
+                if(cseAvail->getIROP() == IR_load)
+                {
+                    targetBlock->irCodes.erase(remove(targetBlock->irCodes.begin(),
+                                                      targetBlock->irCodes.end(),cseAvail->operands.at(0).getInst()),
+                                               targetBlock->irCodes.end());
+                }
             }
 
             for (auto &irCode : targetBlock->irCodes) {

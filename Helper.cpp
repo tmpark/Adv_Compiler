@@ -426,7 +426,7 @@ bool isInnerBlock(BlockKind blkKind)
 bool isDefInstr(shared_ptr<IRFormat> code)
 {
     IROP op = code->getIROP();
-    if(op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp || op == IR_adda ||
+    if(op == IR_add || op == IR_sub || op == IR_mul || op == IR_div || op == IR_cmp ||
             op == IR_phi || op == IR_read || op == IR_load)
         return true;
 
@@ -603,11 +603,20 @@ void getInfoForCodeGen(OpCode opCode,int &numOfArgs, OPFORMAT &opFormat)
 
 bool isCommonSub(shared_ptr<IRFormat> inst1 ,shared_ptr<IRFormat> inst2)
 {
-    if(inst1->getIROP() != inst2->getIROP())
+    IROP irOp = inst1->getIROP();
+    if(irOp != inst2->getIROP())
         return false;
+
+    if(irOp == IR_load)
+    {
+        inst1 = inst1->operands.at(0).getInst();
+        inst2 = inst2->operands.at(0).getInst();
+    }
+
     size_t numOfOperands = inst1->operands.size();
     if(numOfOperands != inst2->operands.size())
         return false;
+
     for(int i = 0 ; i < numOfOperands ; i++)
     {
         Result inst1Operand = inst1->operands.at(i);

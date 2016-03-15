@@ -48,7 +48,7 @@ int main() {
     //11:inner if-while  and vice versa(unlimited iteration)
     //1,5,7,8,9,10,11,12,14,17,19,21,22,23,24,25,26,27,28,29,30,31 : No func Call
 
-    for(int i = 1 ; i < 35 ; i++)
+    for(int i = 1 ; i < 34 ; i++)
     {
         //if(i == 4)
         //    continue;
@@ -76,6 +76,7 @@ int main() {
         if(rc == -1)
             return 0;
         parser->startParse();
+
         //parser->printBlock();
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/" + "CFG_Original" + "/",sourceFileName,"Original");
         parser->createDominantGraph(graphFolder+sourceFileName + "/" + "DT" + "/",sourceFileName);

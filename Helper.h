@@ -383,6 +383,8 @@ public:
     int getJumpLoc(){return jumpLoc;};
     void setReturnAddr(){returnAddr = true;};
     bool isReturnAddr(){return returnAddr;};
+    void setIndexInst(shared_ptr<IRFormat> arg){indexInst = arg;};
+    shared_ptr<IRFormat> getIndexInst(){return indexInst;};
 
 private:
     Kind kind;
@@ -396,6 +398,8 @@ private:
     //instKind
     shared_ptr<IRFormat> inst;
     bool array;
+    shared_ptr<IRFormat> indexInst;
+
     int blockNo;
     bool diffFuncLoc;
     int jumpLoc;
