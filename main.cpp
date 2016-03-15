@@ -48,7 +48,7 @@ int main() {
     //11:inner if-while  and vice versa(unlimited iteration)
     //1,5,7,8,9,10,11,12,14,17,19,21,22,23,24,25,26,27,28,29,30,31 : No func Call
 
-    for(int i = 1 ; i < 34 ; i++)
+    for(int i = 1 ; i < 35 ; i++)
     {
         //if(i == 4)
         //    continue;
@@ -70,19 +70,18 @@ int main() {
             sourceFileName = "cell";
         else if(i == 33)
             sourceFileName = "factorial";
-
+/**************************************************Parser***********************************************************/
         Parser *parser = Parser :: instance();
         rc = parser->openFile(folder,sourceFileName,sourceFileFormat);
         if(rc == -1)
             return 0;
         parser->startParse();
-
+/*************************************************Draw CFG,DT**********************************************************/
         //parser->printBlock();
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/" + "CFG_Original" + "/",sourceFileName,"Original");
         parser->createDominantGraph(graphFolder+sourceFileName + "/" + "DT" + "/",sourceFileName);
-
+/**********************************************Register Allocation for each function***********************************/
         std::unordered_map<std::string,vector<shared_ptr<BasicBlock>>> functionList = parser->getFuncList();
-
         int numOfGlobalVar = parser->getNumOfVarInFunction(GLOBAL_SCOPE_NAME);
         vector<shared_ptr<RegAllocation>> regAllocList;
         vector<string> functionNameList;
@@ -97,9 +96,10 @@ int main() {
             regAllocList.push_back(regAlloc);
             functionNameList.push_back(function.first);
         }
-
+/**********************************************Draw CFG again after register allocation********************************/
         parser->createControlFlowGraph(graphFolder+sourceFileName + "/" + "CFG_RegAlloc" + "/",sourceFileName,"RegAlloc");
 
+/**********************************************Draw Interference Graph*************************************************/
         int index = 0;
         for(auto regAlloc : regAllocList)
         {
@@ -108,7 +108,7 @@ int main() {
             index++;
         }
 
-
+/**********************************************Code Generation*********************************************************/
         CodeGeneration codeGeneration(functionList);
         codeGeneration.doCodeGen();
         codeGeneration.writeOutCode(binaryFolder+sourceFileName + "/",sourceFileName);
@@ -116,9 +116,9 @@ int main() {
         string executable = binaryFolder + sourceFileName + "/" + sourceFileName + ".out";
         string execCommand = "java -classpath " + binaryFolder + " " + simulator + " " + executable;
 
-        cout << sourceFileName << "'s output: " <<endl;
-        system(execCommand.c_str());
-        cout << endl;
+        //cout << sourceFileName << "'s output: " <<endl;
+        //system(execCommand.c_str());
+        //cout << endl;
 
         //parser->printIRCodes(parser->IRCodes); //Debug
         //parser->printSymbolTable(); //Debug

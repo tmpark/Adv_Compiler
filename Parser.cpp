@@ -1383,6 +1383,10 @@ string Parser :: getCodeString(string functionName,shared_ptr<IRFormat> code)
     int index = 0;
     for(auto operand : code->operands)
     {
+        if(code->getIROP() == IR_phi && index == 0) {
+            index++;
+            continue;
+        }
         if(operand.getKind() == errKind)
             break;
 
