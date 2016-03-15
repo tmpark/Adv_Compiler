@@ -9,13 +9,21 @@ CSETracker:: CSETracker()
 {
 }
 
-shared_ptr<IRFormat> CSETracker::findExistingCommonSub(IROP irOp,vector<Result> operands)
+shared_ptr<IRFormat> CSETracker::findExistingCommonSub(shared_ptr<IRFormat> targetInst)
 {
+    IROP irOp = targetInst->getIROP();
+    vector<Result> operands = targetInst->operands;
     shared_ptr<IRFormat> currentInstPtr = getCurrentInstPtr(irOp);
 
 
     while(currentInstPtr != NULL)
     {
+        //Same thing can exist(skip)
+        if(targetInst->getLineNo() == currentInstPtr->getLineNo()) {
+            currentInstPtr = currentInstPtr->getPreviousSameOpInst();
+            continue;
+        }
+
         if(irOp == IR_load)
         {
             if(currentInstPtr->getIROP() == IR_store) {
@@ -29,7 +37,10 @@ shared_ptr<IRFormat> CSETracker::findExistingCommonSub(IROP irOp,vector<Result> 
             }
                 //else let them go
         }
+
+        bool sameInst = isCommonSub(targetInst,currentInstPtr);
         //For all operands they should be same
+        /*
         bool sameOperand = true;
         for(int i = 0 ; i < operands.size() ;i++)
         {
@@ -43,12 +54,12 @@ shared_ptr<IRFormat> CSETracker::findExistingCommonSub(IROP irOp,vector<Result> 
             if(isSameOperand(currentInstPtr->operands.at(0),operands.at(1)) &&
                     isSameOperand(currentInstPtr->operands.at(1),operands.at(0)))
                 sameOperand = true;
-        }
+        }*/
 
 
 
         //Same operand
-        if(sameOperand)
+        if(sameInst)
         {
             return currentInstPtr;
         }
